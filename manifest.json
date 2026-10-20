@@ -1,0 +1,10 @@
+{
+  "id": "pi-edge",
+  "name": "Pi Edge",
+  "version": "0.1.0",
+  "minAppVersion": "1.7.2",
+  "description": "Connect to Pi on your computer from desktop or mobile with one-time pairing and note context.",
+  "author": "Anderbone",
+  "authorUrl": "https://github.com/Anderbone",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,7 @@
+node_modules/
+main.js
+.env
+.env.*
+!.env.example
+*.log
+preview.js
