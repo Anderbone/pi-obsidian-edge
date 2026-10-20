@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { WebSocketServer } = require('ws');
 const { getAgent, listAgents } = require('./agents.cjs');
+const { availableModes, toolsFor, FULL_TOOLS } = require('./permissions.cjs');
 
 const COMMANDS = new Set(['prompt', 'abort', 'get_state', 'get_messages', 'get_session_stats',
   'get_available_models', 'get_available_thinking_levels', 'set_model', 'set_thinking_level', 'new_session']);
@@ -10,7 +11,9 @@ const COMMANDS = new Set(['prompt', 'abort', 'get_state', 'get_messages', 'get_s
 function createBridge(options) {
   if (typeof options.token !== 'string' || options.token.length < 24) throw new Error('A token of at least 24 characters is required.');
   const sessions = new Map();
-  const tools = options.tools || 'read,grep,find,ls';
+  const tools = options.tools || FULL_TOOLS;
+  const modes = availableModes(tools);
+  if (!modes.length) throw new Error('The tool ceiling must allow at least the read-only preset.');
   const graceMs = options.graceMs ?? 120000;
   const launch = options.spawn || spawn;
   let shuttingDown = false;
@@ -35,17 +38,18 @@ function createBridge(options) {
     ws.session = session;
     const announce = () => {
       if (session.socket !== ws || ws.readyState !== 1) return;
-      send(ws, { type: 'edge.ready', protocol: 1, sessionId: session.id, agent: session.adapter.id, agents: listAgents(), tools, cwdLabel: options.label || 'Computer vault' });
+      send(ws, { type: 'edge.ready', protocol: 1, sessionId: session.id, agent: session.adapter.id, agents: listAgents(), tools: session.tools, permissions: session.permissions, permissionModes: modes, cwdLabel: options.label || 'Computer vault' });
       for (const event of session.events) send(ws, event);
       session.child.stdin.write(JSON.stringify({ type: 'get_state' }) + '\n');
       session.child.stdin.write(JSON.stringify({ type: 'get_messages' }) + '\n');
     };
     if (session.started) announce(); else session.child.once('spawn', announce);
   }
-  function startSession(clientId, ws, adapter) {
-    const command = adapter.launch({ ...options, tools, sessionId: clientId });
+  function startSession(clientId, ws, adapter, permissions) {
+    const sessionTools = toolsFor(permissions, tools);
+    const command = adapter.launch({ ...options, tools: sessionTools, sessionId: clientId });
     const child = launch(command.executable, command.args, { cwd: options.cwd, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
-    const session = { id: crypto.randomUUID(), clientId, child, adapter, started: false, socket: undefined,
+    const session = { id: crypto.randomUUID(), clientId, child, adapter, tools: sessionTools, permissions, busy: false, started: false, socket: undefined,
       events: [], bytes: 0, sequence: 0, seen: new Set(), expiry: undefined };
     sessions.set(clientId, session);
     child.once('spawn', () => { session.started = true; });
@@ -65,6 +69,9 @@ function createBridge(options) {
         let event;
         try { event = JSON.parse(line); } catch { continue; }
         for (const normalized of adapter.normalize(event)) {
+          if (normalized.kind === 'run.started') session.busy = true;
+          if (normalized.kind === 'run.finished') session.busy = false;
+          if (normalized.kind === 'state') session.busy = normalized.busy;
           const packet = { type: 'edge.event', sessionId: session.id, seq: ++session.sequence, event: normalized };
           const size = Buffer.byteLength(JSON.stringify(packet));
           session.events.push(packet); session.bytes += size;
@@ -130,11 +137,24 @@ function createBridge(options) {
         if (existing && existing.adapter.id !== adapter.id) return ws.close(4003, 'Choose a new conversation to switch agent');
         if (existing) attach(existing, ws);
         else if (sessions.size >= 8) ws.close(1013, 'Too many sessions');
-        else startSession(message.clientId, ws, adapter);
+        else {
+          const permissions = modes.some(mode => mode.id === message.permissions) ? message.permissions : modes.at(-1).id;
+          startSession(message.clientId, ws, adapter, permissions);
+        }
         return;
       }
       const session = ws.session;
       if (session.socket !== ws || !session.child.stdin.writable) return;
+      if (message.type === 'edge.permissions') {
+        if (session.busy) return send(ws, { type: 'edge.error', message: 'Stop the current run before changing permissions.' });
+        try { toolsFor(message.mode, tools); } catch (error) { return send(ws, { type: 'edge.error', message: error.message }); }
+        if (message.mode === session.permissions) return;
+        // Reopen the same saved Pi session with the requested tool list.
+        session.socket = undefined;
+        removeSession(session);
+        startSession(session.clientId, ws, session.adapter, message.mode);
+        return;
+      }
       if (!COMMANDS.has(message.type)) return send(ws, { type: 'edge.error', message: 'That command is not available.' });
       if (typeof message.id !== 'string' || message.id.length > 180) return ws.close(4003, 'Command ID required');
       if (message.type === 'prompt' && (typeof message.message !== 'string' || message.message.length > 150000)) {

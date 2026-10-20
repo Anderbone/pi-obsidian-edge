@@ -24,7 +24,7 @@ export class EdgeClient {
   private sequence = 0;
   private seen = new Set<string>();
   constructor(private pairing: Pairing, private clientId: string, private hooks: ClientHooks,
-    private createSocket: (url: string) => SocketLike = url => new WebSocket(url) as unknown as SocketLike) {}
+    private createSocket: (url: string) => SocketLike = url => new WebSocket(url) as unknown as SocketLike, private permissions = 'full') {}
   connect(): void {
     this.stopped = false;
     if (this.socket && this.socket.readyState < 2) return;
@@ -35,7 +35,7 @@ export class EdgeClient {
     const current = () => this.socket === socket;
     this.deadline = setTimeout(() => { if (current() && !this.ready) socket.close(); }, 12000);
     socket.onopen = () => {
-      if (current()) socket.send(JSON.stringify({ type: 'edge.hello', protocol: 1, clientId: this.clientId, agent: 'pi' }));
+      if (current()) socket.send(JSON.stringify({ type: 'edge.hello', protocol: 1, clientId: this.clientId, agent: 'pi', permissions: this.permissions }));
     };
     socket.onmessage = event => {
       if (!current()) return;
@@ -45,7 +45,8 @@ export class EdgeClient {
         clearTimeout(this.deadline);
         this.ready = true;
         this.attempts = 0;
-        this.hooks.status('ready', message.tools?.includes('bash') ? 'Connected · full access' : 'Connected');
+        this.permissions = message.permissions || this.permissions;
+        this.hooks.status('ready', 'Connected');
         this.hooks.event(message);
         for (const command of this.pending.splice(0)) socket.send(JSON.stringify(command));
       } else if (message.type === 'edge.event') {

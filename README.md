@@ -69,19 +69,21 @@ This is an independent prototype, not an update to Pi Panel, Pi Agent, or any ot
 
 **Image** opens the device image picker. Pasting and dropping images are supported where the device provides these APIs. PNG, JPEG, WebP, and GIF are accepted. Up to six attachments are allowed, with images limited to 4,000,000 bytes total per prompt. Images are sent at their original quality and are not saved as vault attachments by the plugin.
 
-Settings include the bridge connection, default model, thinking level, local history, and connection diagnostics. The panel shows the current reasoning effort and the levels supported by the selected model. The composer adapts to Obsidian keyboard-height changes and viewport resizing so typing remains visible. The token is saved in device-local WebView storage, outside synced plugin `data.json`; pair each device separately. This is local storage, not a secure hardware credential vault.
+Settings include the bridge connection, a default-model dropdown populated from the computer Pi registry, reasoning effort when supported, permission presets, local history, and connection diagnostics. Pi providers configured on the computer are shown as model groups. Separately installed agent CLIs such as Codex or OpenCode are not automatically imported into Pi’s model registry. The panel shows the current reasoning effort and supported levels only for models with a non-off reasoning level. The composer adapts to Obsidian keyboard-height changes and viewport resizing so typing remains visible. The token is saved in device-local WebView storage, outside synced plugin `data.json`; pair each device separately. This is local storage, not a secure hardware credential vault.
 
-The computer bridge controls tools. The default is `read,grep,find,ls`. To allow note edits, explicitly start it with:
+Choose **Read only**, **Read & write**, or **Full access** directly in the mobile composer or settings. The default is **Full access**, including read, write, edit, search and shell tools. Permission changes reopen the same saved Pi session; stop a running agent before changing them.
+
+The computer can impose an optional maximum using `--tools`. For example, this ceiling permits note edits but prevents the phone from enabling shell access:
 
 ```sh
 npm run bridge -- --cwd /path/to/vault --tools read,grep,find,ls,write,edit
 ```
 
-Adding `bash` permits shell commands. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled in this prototype. Full Pi extension interactions are not supported.
+Without an explicit `--tools` ceiling, all built-in tools are available and the phone can switch between all three permission presets. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled in this prototype. Full Pi extension interactions are not supported.
 
 ## Sessions and reconnecting
 
-The bridge fixes the working directory and maximum tools on the computer; clients cannot override launch arguments or the working directory. Each conversation has an application-owned UUID. The Pi adapter uses that UUID for a saved Pi session.
+The bridge fixes the working directory and any explicit tool ceiling on the computer. Clients select a permission preset within that ceiling; they cannot override arbitrary launch arguments or the working directory. Each conversation has an application-owned UUID. The Pi adapter uses that UUID for a saved Pi session.
 
 A dropped socket retains the running process for two minutes. A reconnect uses the same process and replays bounded, normalized events. After the retention window, the next connection starts Pi with the same saved session ID. Pi history is reloaded into the panel. A computer or bridge restart can interrupt active work; inspect results before repeating an action.
 

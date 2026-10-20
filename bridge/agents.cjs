@@ -33,7 +33,7 @@ const pi = {
       case 'response':
         if (event.success === false) return [{ kind: 'error', message: event.error || 'Agent command failed.' }];
         if (event.command === 'get_state') return [{ kind: 'state', busy: !!event.data?.isStreaming,
-          effort: event.data?.thinkingLevel || 'off', model: event.data?.model ? `${event.data.model.provider}/${event.data.model.id}` : '' }];
+          reasoning: !!event.data?.model?.reasoning, effort: event.data?.thinkingLevel || 'off', model: event.data?.model ? `${event.data.model.provider}/${event.data.model.id}` : '' }];
         if (event.command === 'get_available_thinking_levels') return [{ kind: 'effort.levels', levels: event.data?.levels || ['off'] }];
         if (event.command === 'set_thinking_level') return [{ kind: 'state.refresh' }];
         if (event.command === 'set_model' && event.data) { const model = event.data.model || event.data; return [{ kind: 'model', model: `${model.provider}/${model.id}` }, { kind: 'state.refresh' }]; }

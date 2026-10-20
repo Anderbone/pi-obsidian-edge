@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { createBridge } = require('./server.cjs');
 const qr = require('qrcode-terminal');
+const { FULL_TOOLS } = require('./permissions.cjs');
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -41,7 +42,7 @@ async function main() {
   const url = `ws://${host}:${port}`;
   const code = 'pi-edge:v1:' + Buffer.from(JSON.stringify({ url, token })).toString('base64url');
   const link = 'obsidian://pi-edge?code=' + encodeURIComponent(code);
-  console.log(`\nPi Edge is ready at ${url}\nWorking directory: ${cwd}\nTools: ${args.tools || 'read,grep,find,ls'}\n`);
+  console.log(`\nPi Edge is ready at ${url}\nWorking directory: ${cwd}\nTools: ${args.tools || FULL_TOOLS}\n`);
   const codeFile = path.join(config, 'connection-code.txt');
   fs.writeFileSync(codeFile, code + '\n', { mode: 0o600 });
   fs.chmodSync(codeFile, 0o600);

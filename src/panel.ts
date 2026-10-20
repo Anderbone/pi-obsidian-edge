@@ -11,6 +11,8 @@ export interface PanelActions {
   attach(kind: 'note' | 'selection' | 'browse'): Promise<Attachment | undefined>;
   model(id: string): void;
   effort(level: string): void;
+  permissions(mode: string): void;
+  icon?(element: HTMLElement, name: string): void;
   markdown(text: string, element: HTMLElement): void;
   changed(messages: ChatMessage[]): void;
 }
@@ -25,6 +27,10 @@ export class ChatPanel {
   private status: HTMLElement;
   private model: HTMLSelectElement;
   private effort: HTMLSelectElement;
+  private permissions: HTMLSelectElement;
+  private currentPermissions = 'full';
+  private typing: HTMLElement;
+  private typingText: HTMLElement;
   private viewportCleanup?: () => void;
   private transcript: HTMLElement;
   private empty: HTMLElement;
@@ -45,29 +51,34 @@ export class ChatPanel {
     const heading = node('div', 'edge-heading');
     heading.append(node('span', 'edge-mark', 'π'), node('h2', '', 'Pi Edge'));
     const controls = node('div', 'edge-header-actions');
-    controls.append(button('+', 'New conversation', actions.fresh), button('History', 'Conversation history', actions.history), button('Settings', 'Open settings', actions.settings));
+    controls.append(this.iconButton('+', 'New conversation', actions.fresh, 'plus'), this.iconButton('History', 'Conversation history', actions.history, 'history'), this.iconButton('Settings', 'Open settings', actions.settings, 'settings'));
     header.append(heading, controls);
     const connection = node('div', 'edge-connection');
     this.status = node('span', 'edge-status', paired ? 'Connecting…' : 'Computer not paired'); this.status.setAttribute('role', 'status');
     this.model = node('select', 'edge-model'); this.model.setAttribute('aria-label', 'Model');
     this.model.append(new Option('Pi · model on computer', ''));
-    this.model.addEventListener('change', () => actions.model(this.model.value));
+    this.model.addEventListener('change', () => { this.effort.hidden = true; actions.model(this.model.value); });
     this.effort = node('select', 'edge-effort'); this.effort.setAttribute('aria-label', 'Reasoning effort'); this.effort.title = 'Reasoning effort';
     for (const level of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']) this.effort.add(new Option(level.charAt(0).toUpperCase() + level.slice(1), level));
-    this.effort.value = 'medium';
+    this.effort.value = 'medium'; this.effort.hidden = true;
     this.effort.addEventListener('change', () => actions.effort(this.effort.value));
     const modelControls = node('div', 'edge-model-controls'); modelControls.append(this.model, this.effort);
     connection.append(this.status, modelControls);
     this.transcript = node('div', 'edge-transcript'); this.transcript.setAttribute('role', 'log'); this.transcript.setAttribute('aria-label', 'Conversation');
     this.empty = node('section', 'edge-empty');
-    this.empty.append(node('span', 'edge-eyebrow', 'YOUR NOTES, IN CONTEXT'), node('h3', '', paired ? 'What are you working on?' : 'Bring Pi to your notes.'),
-      node('p', '', paired ? 'Ask a question or attach a note. Pi runs on your computer.' : 'Start the bridge on your computer, then paste its connection code here.'));
+    this.empty.append(node('h3', '', paired ? 'Start a conversation' : 'Connect your computer'),
+      node('p', '', paired ? 'Ask Pi or attach a note to begin.' : 'Start the bridge on your computer, then paste its connection code here.'));
     if (!paired) this.empty.append(button('Pair computer', 'Paste a connection code', actions.pair, 'mod-cta'));
-    this.transcript.append(this.empty);
-    this.activity = node('div', 'edge-activity'); this.activity.setAttribute('role', 'status');
+    this.typing = node('div', 'edge-typing'); this.typing.hidden = true; this.typing.setAttribute('role', 'status');
+    const dots = node('span', 'edge-typing-dots'); dots.setAttribute('aria-hidden', 'true');
+    for (let index = 0; index < 3; index++) dots.append(node('i'));
+    this.typingText = node('span', 'edge-typing-text', 'Thinking…'); this.typing.append(dots, this.typingText);
+    this.transcript.append(this.empty, this.typing);
+    this.activity = node('div', 'edge-activity'); this.activity.setAttribute('role', 'status'); this.activity.hidden = true;
     const composer = node('form', 'edge-composer');
     this.chips = node('div', 'edge-attachments');
-    this.input = node('textarea', 'edge-input'); this.input.placeholder = 'Ask Pi…'; this.input.rows = 3; this.input.setAttribute('aria-label', 'Message');
+    this.input = node('textarea', 'edge-input'); this.input.placeholder = 'Ask Pi…'; this.input.rows = 2; this.input.setAttribute('aria-label', 'Message');
+    this.input.addEventListener('input', () => { this.input.style.height = 'auto'; this.input.style.height = Math.min(140, this.input.scrollHeight) + 'px'; });
     this.input.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); this.submit(); } });
     this.input.addEventListener('paste', event => {
       const files = [...(event.clipboardData?.files || [])].filter(file => file.type.startsWith('image/'));
@@ -80,20 +91,29 @@ export class ChatPanel {
     });
     const toolbar = node('div', 'edge-toolbar');
     const references = node('div', 'edge-reference-actions');
-    for (const [label, kind, title] of [['Note', 'note', 'Attach current note'], ['Selection', 'selection', 'Attach selected text'], ['Browse', 'browse', 'Choose a note']] as const) {
-      references.append(button(label, title, () => { void actions.attach(kind).then(item => { if (item) this.addAttachment(item); }).catch(error => this.error(error.message)); }));
+    for (const [label, kind, title, icon] of [['Note', 'note', 'Attach current note', 'file-text'], ['Selection', 'selection', 'Attach selected text', 'text-select'], ['Browse', 'browse', 'Choose a note', 'search']] as const) {
+      references.append(this.iconButton(label, title, () => { void actions.attach(kind).then(item => { if (item) this.addAttachment(item); }).catch(error => this.error(error.message)); }, icon));
     }
     const upload = node('input'); upload.type = 'file'; upload.accept = 'image/png,image/jpeg,image/webp,image/gif'; upload.multiple = true; upload.hidden = true;
     upload.addEventListener('change', () => { void this.addImages([...(upload.files || [])]); upload.value = ''; });
-    references.append(button('Image', 'Attach images', () => upload.click()));
+    references.append(this.iconButton('Image', 'Attach images', () => upload.click(), 'image'));
+    this.permissions = node('select', 'edge-permissions'); this.permissions.setAttribute('aria-label', 'Permissions'); this.permissions.title = 'Tool permissions';
+    this.setPermissions('full', [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }]);
+    this.permissions.addEventListener('change', () => { const selected = this.permissions.value; this.permissions.value = this.currentPermissions; actions.permissions(selected); });
     const primary = node('div', 'edge-primary-actions');
-    this.stopButton = button('Stop', 'Stop generation', actions.stop); this.stopButton.hidden = true;
-    this.sendButton = button('Send ↑', 'Send message', () => this.submit(), 'mod-cta');
-    primary.append(this.stopButton, this.sendButton); toolbar.append(references, primary);
+    this.stopButton = this.iconButton('Stop', 'Stop generation', actions.stop, 'square'); this.stopButton.hidden = true;
+    this.sendButton = this.iconButton('↑', 'Send message', () => this.submit(), 'arrow-up', 'mod-cta');
+    primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.permissions, primary);
     composer.append(this.chips, this.input, upload, toolbar);
     composer.addEventListener('submit', event => { event.preventDefault(); this.submit(); });
     root.append(header, connection, this.transcript, this.activity, composer);
     this.trackViewport();
+  }
+  private iconButton(label: string, title: string, action: () => void, icon: string, cls = ''): HTMLButtonElement {
+    const element = button(label, title, action, `edge-icon-button ${cls}`); this.actions.icon?.(element, icon); return element;
+  }
+  setPermissions(mode: string, modes: { id: string; label: string }[]): void {
+    this.currentPermissions = mode; this.permissions.replaceChildren(...modes.map(item => new Option(item.label, item.id))); this.permissions.value = mode;
   }
   private trackViewport(): void {
     const viewport = window.visualViewport;
@@ -129,27 +149,40 @@ export class ChatPanel {
     if (this.state === 'disconnected') { this.actions.pair(); return; }
     try {
       this.actions.send(text || 'Please look at the attached context.', [...this.attachments]);
-      this.input.value = ''; this.attachments = []; this.renderAttachments();
-      this.setBusy(true); this.activity.textContent = this.state === 'ready' ? 'Waiting for Pi…' : 'Queued until the computer connects…';
+      this.input.value = ''; this.input.style.height = ''; this.attachments = []; this.renderAttachments();
+      this.setBusy(true); this.typingText.textContent = this.state === 'ready' ? 'Thinking…' : 'Waiting for connection…';
     } catch (error) { this.error((error as Error).message); }
   }
   statusChanged(state: string, detail: string): void {
-    this.state = state; this.status.textContent = detail; this.status.dataset.state = state;
+    this.state = state; this.status.textContent = detail; this.status.title = detail; this.status.dataset.state = state;
     if (state === 'error') this.setBusy(false);
   }
   setBusy(value: boolean): void {
     delete this.activity.dataset.error;
-    this.busy = value; this.sendButton.disabled = value; this.stopButton.hidden = !value;
+    this.busy = value; this.typing.hidden = !value; this.permissions.disabled = value;
+    this.activity.hidden = true;
+    if (value) { this.empty.hidden = true; this.typingText.textContent = 'Thinking…'; this.transcript.scrollTop = this.transcript.scrollHeight; }
+    this.sendButton.disabled = value; this.stopButton.hidden = !value;
     if (!value) this.activity.textContent = '';
   }
-  setModels(models: { id: string; name: string }[], current = ''): void {
-    this.model.replaceChildren(new Option(current || 'Choose model', current));
-    for (const model of models) if (model.id !== current) this.model.append(new Option(model.name, model.id));
+  setModels(models: { id: string; name: string; provider?: string }[], current = ''): void {
+    this.model.replaceChildren();
+    const groups = new Map<string, HTMLOptGroupElement>();
+    for (const model of models) {
+      const provider = model.provider || model.id.split('/')[0];
+      if (!groups.has(provider)) { const group = node('optgroup'); group.label = provider; groups.set(provider, group); this.model.append(group); }
+      const name = model.name.replace(provider + ' / ', '');
+      groups.get(provider)!.append(new Option(name, model.id));
+    }
+    if (current && !models.some(model => model.id === current)) this.model.prepend(new Option(current, current));
+    if (current) this.model.value = current;
+    if (!models.length) this.model.add(new Option('No models available', ''));
+    this.model.disabled = !models.length;
   }
   setEffortLevels(levels: string[]): void {
     const current = this.effort.value; this.effort.replaceChildren();
     for (const level of levels) this.effort.add(new Option(level.charAt(0).toUpperCase() + level.slice(1), level));
-    this.effort.disabled = levels.length <= 1;
+    this.effort.disabled = levels.length <= 1; this.effort.hidden = !levels.some(level => level !== 'off');
     if (levels.includes(current)) this.effort.value = current;
   }
   setEffort(level: string): void { if (level && [...this.effort.options].some(option => option.value === level)) this.effort.value = level; }
@@ -160,13 +193,14 @@ export class ChatPanel {
   }
   handle(event: any): void {
     if (event.kind === 'message' && (event.role === 'user' || event.role === 'assistant')) {
+      if (event.role === 'assistant' && !event.final) this.typingText.textContent = 'Responding…';
       if (event.text) this.upsert({ id: event.id, role: event.role, text: event.text, final: !!event.final });
     } else if (event.kind === 'history') {
       this.restore(event.messages); this.actions.changed([...this.messages]);
     } else if (event.kind === 'run.started') this.setBusy(true);
     else if (event.kind === 'run.finished') this.setBusy(false);
-    else if (event.kind === 'tool') this.activity.textContent = `${event.name} · ${event.phase}`;
-    else if (event.kind === 'state') { this.setCurrentModel(event.model); this.setEffort(event.effort); this.setBusy(event.busy); }
+    else if (event.kind === 'tool') this.typingText.textContent = `${event.name} · ${event.phase}`;
+    else if (event.kind === 'state') { this.setCurrentModel(event.model); if (event.reasoning === false) this.effort.hidden = true; this.setEffort(event.effort); this.setBusy(event.busy); }
     else if (event.kind === 'model') this.setCurrentModel(event.model);
     else if (event.kind === 'effort.levels') this.setEffortLevels(event.levels);
     else if (event.kind === 'models') this.setModels(event.models, this.model.value);
@@ -182,11 +216,11 @@ export class ChatPanel {
       const element = node('article', `edge-message edge-${message.role}`);
       element.append(node('div', 'edge-message-label', message.role === 'user' ? 'You' : 'Pi'));
       const body = node('div', 'edge-message-body'); element.append(body);
-      if (message.role === 'assistant') element.append(button('Copy', 'Copy response', () => { void navigator.clipboard.writeText(this.rows.get(message.id)?.text || '').catch(() => this.error('Could not copy. Select the text to copy it.')); }, 'edge-copy'));
-      this.transcript.append(element); row = { row: element, body, text: '', final: false }; this.rows.set(message.id, row);
+      if (message.role === 'assistant') element.append(this.iconButton('Copy', 'Copy response', () => { void navigator.clipboard.writeText(this.rows.get(message.id)?.text || '').catch(() => this.error('Could not copy. Select the text to copy it.')); }, 'copy', 'edge-copy'));
+      this.transcript.insertBefore(element, this.typing); row = { row: element, body, text: '', final: false }; this.rows.set(message.id, row);
     }
     if (row.text !== message.text || row.final !== message.final) {
-      row.text = message.text; row.final = message.final;
+      row.text = message.text; row.final = message.final; row.row.classList.toggle('is-streaming', !message.final);
       row.body.replaceChildren();
       const display = message.role === 'user' ? message.text.split('\n\n<note-context>')[0] : message.text;
       if (message.final && message.role === 'assistant') this.actions.markdown(display, row.body);
@@ -198,11 +232,11 @@ export class ChatPanel {
     if (atBottom || message.role === 'user') this.transcript.scrollTop = this.transcript.scrollHeight;
   }
   restore(messages: ChatMessage[]): void {
-    this.messages = []; this.rows.clear(); this.transcript.replaceChildren(this.empty); this.empty.hidden = messages.length > 0;
+    this.messages = []; this.rows.clear(); this.transcript.replaceChildren(this.empty, this.typing); this.empty.hidden = messages.length > 0;
     for (const message of messages) this.upsert(message, false);
     this.transcript.scrollTop = this.transcript.scrollHeight;
   }
-  error(message: string): void { this.setBusy(false); this.activity.textContent = message; this.activity.dataset.error = 'true'; }
+  error(message: string): void { this.setBusy(false); this.activity.hidden = false; this.activity.textContent = message; this.activity.dataset.error = 'true'; }
   addAttachment(attachment: Attachment): void {
     if (this.disposed) return;
     if (this.attachments.length >= 6) return this.error('Attach up to six items per message.');

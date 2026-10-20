@@ -1,13 +1,16 @@
 import { Plugin, ItemView, WorkspaceLeaf, PluginSettingTab, Setting, Modal, Notice, MarkdownView,
-  MarkdownRenderer, FuzzySuggestModal, TFile } from 'obsidian';
+  MarkdownRenderer, FuzzySuggestModal, TFile, setIcon } from 'obsidian';
 import { EdgeClient } from './src/client';
 import { parsePairing, validatePairing, type Pairing } from './src/pairing';
 import { ChatPanel, type Attachment, type ChatMessage } from './src/panel';
 
 const VIEW = 'pi-edge-chat';
 interface Conversation { id: string; title: string; messages: ChatMessage[]; updated: number; }
-interface Settings { url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
-const DEFAULTS: Settings = { url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
+interface ModelEntry { id: string; name: string; provider: string; }
+interface PermissionMode { id: string; label: string; }
+const PERMISSIONS: PermissionMode[] = [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }];
+interface Settings { permissions: string; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
+const DEFAULTS: Settings = { permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
 
 class PairModal extends Modal {
   constructor(private plugin: EdgePlugin, private initial = '') { super(plugin.app); }
@@ -35,8 +38,10 @@ class HistoryPicker extends FuzzySuggestModal<Conversation> {
   onChooseItem(item: Conversation): void { this.plugin.settings.active = item.id; void this.plugin.saveSettings().then(() => this.plugin.reloadViews()); }
 }
 class EdgeSettings extends PluginSettingTab {
+  private cleanup?: () => void;
   constructor(private plugin: EdgePlugin) { super(plugin.app, plugin); }
-  display(): void { renderSettings(this.containerEl, this.plugin); }
+  display(): void { this.cleanup?.(); const refresh = () => renderSettings(this.containerEl, this.plugin); refresh(); this.plugin.catalogListeners.add(refresh); this.cleanup = () => this.plugin.catalogListeners.delete(refresh); }
+  hide(): void { this.cleanup?.(); }
 }
 function renderSettings(container: HTMLElement, plugin: EdgePlugin): void {
   container.empty();
@@ -49,19 +54,31 @@ function renderSettings(container: HTMLElement, plugin: EdgePlugin): void {
     new Setting(container).setName('Reconnect').setDesc('Apply a changed address or token.').addButton(button => button.setButtonText('Reconnect').onClick(() => plugin.reloadViews()));
     new Setting(container).setName('Connection diagnostics').setDesc('Connection transitions only; excludes tokens, prompts and note content.').addButton(button => button.setButtonText('View').onClick(() => { const modal = new Modal(plugin.app); modal.titleEl.setText('Connection diagnostics'); modal.contentEl.createEl('pre', { text: plugin.diagnostics.join('\n') || 'No connection events yet.', cls: 'edge-diagnostics' }); modal.open(); }));
     new Setting(container).setName('Pi preferences').setHeading();
-    new Setting(container).setName('Default model').setDesc('Optional provider/model ID. Leave empty to use the model configured on the computer.').addText(text => text.setValue(plugin.settings.defaultModel).setPlaceholder('provider/model').onChange(value => { plugin.settings.defaultModel = value.trim(); void plugin.saveSettings(); }));
-    new Setting(container).setName('Thinking level').addDropdown(dropdown => {
-      for (const level of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']) dropdown.addOption(level, level);
-      dropdown.setValue(plugin.settings.thinking).onChange(value => { plugin.settings.thinking = value; void plugin.saveSettings(); });
+    new Setting(container).setName('Default model').setDesc('Models provided by Pi on your computer.').addDropdown(dropdown => {
+      dropdown.addOption('', 'Computer default');
+      for (const model of plugin.models) dropdown.addOption(model.id, model.name);
+      dropdown.setValue(plugin.settings.defaultModel).setDisabled(!plugin.models.length).onChange(value => {
+        plugin.settings.defaultModel = value; void plugin.saveSettings(); if (value) plugin.selectModel(value);
+      });
     });
-    new Setting(container).setName('Tool permissions').setDesc('The computer bridge controls allowed tools. It starts read-only by default. Change --tools on the computer to permit edits or shell commands.');
+    if (!plugin.models.length) container.createEl('p', { text: 'Connect to your computer to load models.', cls: 'setting-item-description' });
+    if (plugin.effortLevels.some(level => level !== 'off')) new Setting(container).setName('Reasoning effort').setDesc('Levels supported by the current model.').addDropdown(dropdown => {
+      for (const level of plugin.effortLevels) dropdown.addOption(level, level.charAt(0).toUpperCase() + level.slice(1));
+      dropdown.setValue(plugin.settings.thinking).onChange(value => plugin.setEffort(value));
+    });
+    new Setting(container).setName('Permissions').setDesc('Applies to this conversation. Full access includes read, write, edit and shell tools.').addDropdown(dropdown => {
+      for (const mode of plugin.permissionModes) dropdown.addOption(mode.id, mode.label);
+      dropdown.setValue(plugin.settings.permissions).setDisabled(plugin.busy).onChange(value => plugin.setPermissions(value));
+    });
     new Setting(container).setName('Conversation history').setHeading();
     new Setting(container).setName('Local history').setDesc('Up to 30 conversations are saved in plugin data, capped at 2 MB. Images are sent to Pi but are not stored in local history.');
     new Setting(container).setName('Clear local history').setDesc('Removes this plugin’s saved chat copies. Pi sessions on the computer remain separate.').addButton(button => button.setButtonText('Clear history').onClick(async () => { plugin.settings.conversations = []; plugin.settings.active = ''; await plugin.saveSettings(); plugin.reloadViews(); renderSettings(container, plugin); }));
 }
 class SettingsModal extends Modal {
   constructor(private plugin: EdgePlugin) { super(plugin.app); }
-  onOpen(): void { this.titleEl.setText('Pi Edge settings'); renderSettings(this.contentEl, this.plugin); }
+  private refresh = () => renderSettings(this.contentEl, this.plugin);
+  onOpen(): void { this.titleEl.setText('Pi Edge settings'); this.refresh(); this.plugin.catalogListeners.add(this.refresh); }
+  onClose(): void { this.plugin.catalogListeners.delete(this.refresh); }
 }
 
 class EdgeView extends ItemView {
@@ -85,7 +102,9 @@ class EdgeView extends ItemView {
       history: () => new HistoryPicker(this.plugin).open(),
       attach: kind => this.attach(kind),
       model: id => this.selectModel(id),
-      effort: level => { this.plugin.settings.thinking = level; void this.plugin.saveSettings(); this.client?.send('set_thinking_level', { level }); },
+      effort: level => this.plugin.setEffort(level),
+      permissions: mode => this.plugin.setPermissions(mode),
+      icon: (element, name) => setIcon(element, name),
       markdown: (text, element) => { void MarkdownRenderer.render(this.app, text, element, this.plugin.lastFile?.path || '', this); },
       changed: messages => {
         if (!this.conversation) return;
@@ -100,7 +119,9 @@ class EdgeView extends ItemView {
     this.client = new EdgeClient(pairing, this.conversation.id, {
       status: (state, detail) => { this.plugin.recordStatus(state); this.panel?.statusChanged(state, detail); },
       event: event => {
+        this.plugin.updateCatalog(event);
         if (event.type === 'edge.ready') {
+          this.panel?.setPermissions(event.permissions || 'full', event.permissionModes || PERMISSIONS);
           this.client?.send('get_available_models');
           this.client?.send('get_available_thinking_levels');
           this.client?.send('set_thinking_level', { level: this.plugin.settings.thinking });
@@ -108,14 +129,16 @@ class EdgeView extends ItemView {
         } else if (event.kind === 'state.refresh') { this.client?.send('get_state'); this.client?.send('get_available_thinking_levels'); }
         else this.panel?.handle(event);
       }
-    });
+    }, undefined, this.plugin.settings.permissions);
     this.client.connect();
   }
-  private selectModel(id: string): void {
+  selectModel(id: string): void {
     const separator = id.indexOf('/'); if (separator < 1) return;
     this.client?.send('set_model', { provider: id.slice(0, separator), modelId: id.slice(separator + 1) });
     this.plugin.settings.defaultModel = id; void this.plugin.saveSettings();
   }
+  setEffort(level: string): void { this.client?.send('set_thinking_level', { level }); }
+  setPermissions(mode: string): void { this.client?.send('edge.permissions', { mode }); }
   private send(text: string, attachments: Attachment[]): void {
     if (!this.client) throw new Error('Pair your computer before sending a message.');
     const context = attachments.filter(item => item.text).map(item => `Source: ${item.name}\n${item.text}`).join('\n\n');
@@ -140,6 +163,25 @@ class EdgeView extends ItemView {
 export default class EdgePlugin extends Plugin {
   settings: Settings = { ...DEFAULTS }; diagnostics: string[] = [];
   recordStatus(state: string): void { this.diagnostics.push(`${new Date().toISOString()} ${state}`); this.diagnostics = this.diagnostics.slice(-60); }
+  models: ModelEntry[] = [];
+  effortLevels: string[] = [];
+  permissionModes: PermissionMode[] = PERMISSIONS;
+  catalogListeners = new Set<() => void>();
+  busy = false;
+  private activeView(): EdgeView | undefined { return this.app.workspace.getLeavesOfType(VIEW)[0]?.view as EdgeView | undefined; }
+  selectModel(id: string): void { this.activeView()?.selectModel(id); }
+  setEffort(level: string): void { this.settings.thinking = level; void this.saveSettings(); this.activeView()?.setEffort(level); }
+  setPermissions(mode: string): void { this.activeView()?.setPermissions(mode); }
+  updateCatalog(event: any): void {
+    let changed = false;
+    if (event.type === 'edge.ready') { this.settings.permissions = event.permissions || 'full'; this.permissionModes = event.permissionModes || PERMISSIONS; void this.saveSettings(); changed = true; }
+    if (event.kind === 'models') { this.models = event.models; changed = true; }
+    if (event.kind === 'effort.levels') { this.effortLevels = event.levels; changed = true; }
+    if (event.kind === 'state') { this.busy = event.busy; this.settings.thinking = event.effort || 'off'; changed = true; }
+    if (event.kind === 'run.started') { this.busy = true; changed = true; }
+    if (event.kind === 'run.finished') { this.busy = false; changed = true; }
+    if (changed) for (const listener of this.catalogListeners) listener();
+  }
   lastFile?: TFile; lastMarkdown?: MarkdownView;
   private storageKey(): string { return `pi-edge:${this.app.vault.getName()}:${this.app.vault.configDir}:token`; }
   token(): string { return localStorage.getItem(this.storageKey()) || ''; }
