@@ -51,7 +51,7 @@ function renderSettings(container: HTMLElement, plugin: EdgePlugin): void {
     new Setting(container).setName('Pi preferences').setHeading();
     new Setting(container).setName('Default model').setDesc('Optional provider/model ID. Leave empty to use the model configured on the computer.').addText(text => text.setValue(plugin.settings.defaultModel).setPlaceholder('provider/model').onChange(value => { plugin.settings.defaultModel = value.trim(); void plugin.saveSettings(); }));
     new Setting(container).setName('Thinking level').addDropdown(dropdown => {
-      for (const level of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']) dropdown.addOption(level, level);
+      for (const level of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']) dropdown.addOption(level, level);
       dropdown.setValue(plugin.settings.thinking).onChange(value => { plugin.settings.thinking = value; void plugin.saveSettings(); });
     });
     new Setting(container).setName('Tool permissions').setDesc('The computer bridge controls allowed tools. It starts read-only by default. Change --tools on the computer to permit edits or shell commands.');
@@ -85,6 +85,7 @@ class EdgeView extends ItemView {
       history: () => new HistoryPicker(this.plugin).open(),
       attach: kind => this.attach(kind),
       model: id => this.selectModel(id),
+      effort: level => { this.plugin.settings.thinking = level; void this.plugin.saveSettings(); this.client?.send('set_thinking_level', { level }); },
       markdown: (text, element) => { void MarkdownRenderer.render(this.app, text, element, this.plugin.lastFile?.path || '', this); },
       changed: messages => {
         if (!this.conversation) return;
@@ -101,9 +102,11 @@ class EdgeView extends ItemView {
       event: event => {
         if (event.type === 'edge.ready') {
           this.client?.send('get_available_models');
+          this.client?.send('get_available_thinking_levels');
           this.client?.send('set_thinking_level', { level: this.plugin.settings.thinking });
           if (this.plugin.settings.defaultModel) this.selectModel(this.plugin.settings.defaultModel);
-        } else this.panel?.handle(event);
+        } else if (event.kind === 'state.refresh') { this.client?.send('get_state'); this.client?.send('get_available_thinking_levels'); }
+        else this.panel?.handle(event);
       }
     });
     this.client.connect();

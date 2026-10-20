@@ -1,3 +1,4 @@
+import { panelHeight } from './viewport';
 export interface Attachment { id: string; name: string; text?: string; data?: string; mimeType?: string; }
 export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; final: boolean; }
 export interface PanelActions {
@@ -9,6 +10,7 @@ export interface PanelActions {
   history(): void;
   attach(kind: 'note' | 'selection' | 'browse'): Promise<Attachment | undefined>;
   model(id: string): void;
+  effort(level: string): void;
   markdown(text: string, element: HTMLElement): void;
   changed(messages: ChatMessage[]): void;
 }
@@ -22,6 +24,8 @@ function button(label: string, title: string, action: () => void, cls = ''): HTM
 export class ChatPanel {
   private status: HTMLElement;
   private model: HTMLSelectElement;
+  private effort: HTMLSelectElement;
+  private viewportCleanup?: () => void;
   private transcript: HTMLElement;
   private empty: HTMLElement;
   private input: HTMLTextAreaElement;
@@ -48,7 +52,12 @@ export class ChatPanel {
     this.model = node('select', 'edge-model'); this.model.setAttribute('aria-label', 'Model');
     this.model.append(new Option('Pi · model on computer', ''));
     this.model.addEventListener('change', () => actions.model(this.model.value));
-    connection.append(this.status, this.model);
+    this.effort = node('select', 'edge-effort'); this.effort.setAttribute('aria-label', 'Reasoning effort'); this.effort.title = 'Reasoning effort';
+    for (const level of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']) this.effort.add(new Option(level.charAt(0).toUpperCase() + level.slice(1), level));
+    this.effort.value = 'medium';
+    this.effort.addEventListener('change', () => actions.effort(this.effort.value));
+    const modelControls = node('div', 'edge-model-controls'); modelControls.append(this.model, this.effort);
+    connection.append(this.status, modelControls);
     this.transcript = node('div', 'edge-transcript'); this.transcript.setAttribute('role', 'log'); this.transcript.setAttribute('aria-label', 'Conversation');
     this.empty = node('section', 'edge-empty');
     this.empty.append(node('span', 'edge-eyebrow', 'YOUR NOTES, IN CONTEXT'), node('h3', '', paired ? 'What are you working on?' : 'Bring Pi to your notes.'),
@@ -84,6 +93,35 @@ export class ChatPanel {
     composer.append(this.chips, this.input, upload, toolbar);
     composer.addEventListener('submit', event => { event.preventDefault(); this.submit(); });
     root.append(header, connection, this.transcript, this.activity, composer);
+    this.trackViewport();
+  }
+  private trackViewport(): void {
+    const viewport = window.visualViewport;
+    let layoutHeight = window.innerHeight, width = window.innerWidth, frame = 0;
+    const update = () => {
+      frame = 0;
+      if (this.disposed) return;
+      const keyboardHeight = Math.max(Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--keyboard-height')) || 0, Number.parseFloat(getComputedStyle(document.body).getPropertyValue('--keyboard-height')) || 0);
+      if (width !== window.innerWidth) { layoutHeight = window.innerHeight; width = window.innerWidth; }
+      else if (!keyboardHeight) layoutHeight = Math.max(layoutHeight, window.innerHeight);
+      this.root.style.maxHeight = panelHeight({ layoutHeight,
+        viewportHeight: viewport?.height ?? window.innerHeight,
+        viewportTop: viewport?.offsetTop ?? 0, keyboardHeight,
+        top: this.root.getBoundingClientRect().top }) + 'px';
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    viewport?.addEventListener('resize', schedule); viewport?.addEventListener('scroll', schedule);
+    window.addEventListener('resize', schedule); this.root.addEventListener('focusin', schedule); this.root.addEventListener('focusout', schedule);
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+    observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
+    this.viewportCleanup = () => {
+      cancelAnimationFrame(frame); observer.disconnect();
+      viewport?.removeEventListener('resize', schedule); viewport?.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule); this.root.removeEventListener('focusin', schedule); this.root.removeEventListener('focusout', schedule);
+      this.root.style.removeProperty('max-height');
+    };
+    schedule();
   }
   private submit(): void {
     const text = this.input.value.trim();
@@ -108,6 +146,13 @@ export class ChatPanel {
     this.model.replaceChildren(new Option(current || 'Choose model', current));
     for (const model of models) if (model.id !== current) this.model.append(new Option(model.name, model.id));
   }
+  setEffortLevels(levels: string[]): void {
+    const current = this.effort.value; this.effort.replaceChildren();
+    for (const level of levels) this.effort.add(new Option(level.charAt(0).toUpperCase() + level.slice(1), level));
+    this.effort.disabled = levels.length <= 1;
+    if (levels.includes(current)) this.effort.value = current;
+  }
+  setEffort(level: string): void { if (level && [...this.effort.options].some(option => option.value === level)) this.effort.value = level; }
   setCurrentModel(model: string): void {
     if (!model) return;
     if (![...this.model.options].some(option => option.value === model)) this.model.add(new Option(model, model));
@@ -121,8 +166,9 @@ export class ChatPanel {
     } else if (event.kind === 'run.started') this.setBusy(true);
     else if (event.kind === 'run.finished') this.setBusy(false);
     else if (event.kind === 'tool') this.activity.textContent = `${event.name} · ${event.phase}`;
-    else if (event.kind === 'state') { this.setCurrentModel(event.model); this.setBusy(event.busy); }
+    else if (event.kind === 'state') { this.setCurrentModel(event.model); this.setEffort(event.effort); this.setBusy(event.busy); }
     else if (event.kind === 'model') this.setCurrentModel(event.model);
+    else if (event.kind === 'effort.levels') this.setEffortLevels(event.levels);
     else if (event.kind === 'models') this.setModels(event.models, this.model.value);
     else if (event.kind === 'session.new') this.restore([]);
     else if (event.kind === 'error' || event.type === 'edge.error') this.error(event.message);
@@ -177,5 +223,5 @@ export class ChatPanel {
       } catch (error) { this.error((error as Error).message); }
     }
   }
-  dispose(): void { this.disposed = true; }
+  dispose(): void { this.disposed = true; this.viewportCleanup?.(); }
 }

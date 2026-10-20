@@ -13,6 +13,6 @@ const panel = new ChatPanel(root, {
   stop() { panel.setBusy(false); }, pair() { panel.error('Preview only. Use the installed plugin to pair a computer.'); },
   settings() { panel.error('Preview only. Settings are available in Obsidian.'); }, fresh() { panel.restore([]); }, history() {},
   async attach(kind) { return { id: kind, name: kind === 'selection' ? 'Project notes (selection)' : 'Project notes.md', text: 'Preview note context.' }; },
-  model() {}, markdown(text, element) { element.textContent = text; }, changed() {}
+  model() {}, effort(level) { panel.setEffort(level); }, markdown(text, element) { element.textContent = text; }, changed() {}
 }, !params.has('unpaired'));
 if (!params.has('unpaired')) panel.statusChanged('ready', 'Connected · Tailscale');

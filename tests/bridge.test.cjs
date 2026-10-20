@@ -69,3 +69,8 @@ test('adapter rejects an unimplemented agent and handles model errors', () => {
   assert.throws(() => getAgent('codex'));
   assert.deepEqual(getAgent('pi').normalize({ type: 'message_end', message: { role: 'assistant', content: [], errorMessage: 'Provider rejected image' } }).at(-1), { kind: 'error', message: 'Provider rejected image' });
 });
+
+test('Pi reports the active reasoning effort through common state events', () => {
+  const [state] = getAgent('pi').normalize({ type: 'response', command: 'get_state', success: true, data: { thinkingLevel: 'high', isStreaming: false, model: { provider: 'test', id: 'model' } } });
+  assert.equal(state.effort, 'high');
+});

@@ -10,7 +10,7 @@ Repository: **pi-obsidian-edge** · Plugin ID: **pi-edge** · License: **MIT**
 - One connection code fills the bridge address and token. Manual address/token settings are also available.
 - Tailscale transport with token authentication, connection status, automatic reconnect, and initial-message queuing.
 - A two-minute reconnection window keeps the computer process alive. Command IDs prevent duplicate execution within a live bridge session.
-- Markdown responses, copy response, model picker, thinking level, stop, and new conversations.
+- Markdown responses, copy response, model picker, a current-effort selector beside the model, stop, and new conversations.
 - Attach the current note, selected text, another note from the vault, or images from a picker, clipboard, or drag-and-drop.
 - Local conversation history, saved Pi sessions on the computer, and connection-only diagnostics that exclude prompts and tokens.
 
@@ -69,7 +69,7 @@ This is an independent prototype, not an update to Pi Panel, Pi Agent, or any ot
 
 **Image** opens the device image picker. Pasting and dropping images are supported where the device provides these APIs. PNG, JPEG, WebP, and GIF are accepted. Up to six attachments are allowed, with images limited to 4,000,000 bytes total per prompt. Images are sent at their original quality and are not saved as vault attachments by the plugin.
 
-Settings include the bridge connection, default model, thinking level, local history, and connection diagnostics. The token is saved in device-local WebView storage, outside synced plugin `data.json`; pair each device separately. This is local storage, not a secure hardware credential vault.
+Settings include the bridge connection, default model, thinking level, local history, and connection diagnostics. The panel shows the current reasoning effort and the levels supported by the selected model. The composer adapts to Obsidian keyboard-height changes and viewport resizing so typing remains visible. The token is saved in device-local WebView storage, outside synced plugin `data.json`; pair each device separately. This is local storage, not a secure hardware credential vault.
 
 The computer bridge controls tools. The default is `read,grep,find,ls`. To allow note edits, explicitly start it with:
 

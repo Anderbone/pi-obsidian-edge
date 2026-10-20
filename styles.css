@@ -55,3 +55,7 @@
 @keyframes edge-pulse { 50% { opacity: .25; } }
 @media (max-width: 450px) { .edge-header { padding-inline: 14px; } .edge-connection { padding-inline: 14px; } .edge-transcript { padding-inline: 14px; } .edge-header-actions button { font-size: 11px; padding-inline: 6px; } .edge-panel button { min-height: 40px; } }
 @media (prefers-reduced-motion: reduce) { .edge-panel * { animation: none !important; transition: none !important; } }
+.edge-model-controls { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 75%; margin-left: auto; }
+.edge-model-controls .edge-model { min-width: 0; max-width: 100%; flex: 1; }
+.edge-effort { flex: 0 0 auto; max-width: 85px; font: inherit; font-size: 11px; height: 28px; background: transparent; border: 0; box-shadow: none; color: var(--text-muted, #aaa6b5); }
+.edge-diagnostics { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }

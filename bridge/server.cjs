@@ -5,7 +5,7 @@ const { WebSocketServer } = require('ws');
 const { getAgent, listAgents } = require('./agents.cjs');
 
 const COMMANDS = new Set(['prompt', 'abort', 'get_state', 'get_messages', 'get_session_stats',
-  'get_available_models', 'set_model', 'set_thinking_level', 'new_session']);
+  'get_available_models', 'get_available_thinking_levels', 'set_model', 'set_thinking_level', 'new_session']);
 
 function createBridge(options) {
   if (typeof options.token !== 'string' || options.token.length < 24) throw new Error('A token of at least 24 characters is required.');

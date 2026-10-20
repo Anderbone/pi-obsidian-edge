@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Keep the composer and Send button above overlay keyboards and resized mobile viewports.
+- Show reasoning effort beside the model and allow changing it from the panel.
+- Read actual effort and supported levels from Pi; disable switching for non-reasoning models.
+- Add keyboard-layout and effort-state regression tests.
+
 ## 0.1.0
 
 Initial independently written prototype.
