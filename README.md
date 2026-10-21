@@ -1,20 +1,22 @@
 # Pi Edge
 
-A new, independently written Obsidian plugin for using **Pi on your computer from your phone**. Pair once, keep Tailscale running, and chat beside your notes. The interface and default folders are English throughout.
+Chat with **Pi running on your computer from mobile or desktop Obsidian**. Attach notes and images, switch models, and reopen conversations beside your notes.
+
+Requires a separate computer running the included bridge and an authenticated Pi CLI, plus Tailscale on both devices. Model access may require a paid provider account. The interface is English.
 
 Repository: **pi-obsidian-edge** · Plugin ID: **pi-edge** · License: **MIT**
 
-## What works in the prototype
+## Features
 
 - Desktop and mobile use the same remote client; no Node.js or Pi process runs inside mobile Obsidian.
 - One connection code fills the bridge address and token. Manual address/token settings are also available.
 - Tailscale transport with token authentication, connection status, automatic reconnect, and initial-message queuing.
 - A two-minute reconnection window keeps the computer process alive. Command IDs prevent duplicate execution within a live bridge session.
-- Markdown responses, copy response, model picker, a current-effort selector beside the model, stop, and new conversations.
+- Markdown responses, copy buttons for both your messages and Pi replies, model picker, a current-effort selector beside the model, stop, and new conversations.
 - Attach the current note, selected text, another note from the vault, or images from a picker, clipboard, or drag-and-drop.
 - Local conversation history, saved Pi sessions on the computer, and connection-only diagnostics that exclude prompts and tokens.
 
-This first version supports **Pi only**. The bridge has an agent adapter boundary and a common event format, but Codex and OpenCode adapters are not implemented.
+This version supports **Pi only**. The bridge has an agent adapter boundary and a common event format, but Codex and OpenCode adapters are not implemented.
 
 ## Requirements
 
@@ -61,7 +63,7 @@ Private bridge credentials are generated outside your vault in `~/.config/pi-obs
 
 You can also scan the terminal QR code on a device that supports opening `obsidian://` links. It opens a pairing confirmation dialog. The copy-and-paste code is available when QR deep links are unsupported.
 
-This is an independent prototype, not an update to Pi Panel, Pi Agent, or any other plugin. Existing plugins and their settings are not migrated or overwritten. This project has not been submitted to the Obsidian Community directory.
+Pi Edge is an independently written plugin. It does not migrate or overwrite other plugins or their settings. Community-directory availability depends on the submission and review process; manual installation is available now.
 
 ## Attachments and settings
 
@@ -79,7 +81,13 @@ The computer can impose an optional maximum using `--tools`. For example, this c
 npm run bridge -- --cwd /path/to/vault --tools read,grep,find,ls,write,edit
 ```
 
-Without an explicit `--tools` ceiling, all built-in tools are available and the phone can switch between all three permission presets. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled in this prototype. Full Pi extension interactions are not supported.
+Without an explicit `--tools` ceiling, all built-in tools are available and the phone can switch between all three permission presets. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled. Full Pi extension interactions are not supported.
+
+## Note links in conversations
+
+Attached Markdown notes appear as clickable links in your messages and in the history picker. Old conversations with embedded note sources also show links. Copying your own message copies the text you entered, excluding the hidden note context sent to Pi.
+
+Links first use the original vault path. If the file has moved, Pi Edge looks for the exact same filename within `projects/<project>/`. For other layouts, it stays within the original top-level folder; notes originally at the vault root search the vault. One match opens directly, multiple matches show a chooser, and no match shows a notice without creating an empty note. A renamed file cannot be recovered by this filename fallback. Files must have synced to the current device before they can be opened. No note IDs or changes to note properties are required.
 
 ## Sessions and reconnecting
 
@@ -105,6 +113,7 @@ Pi runs as a subprocess outside Obsidian. It reads its configuration, credential
 
 ```sh
 npm ci
+npm run lint
 npm test
 npm run build
 npm run preview
@@ -119,7 +128,7 @@ The UI preview runs on `http://127.0.0.1:8781`, uses the real panel component, a
 - `bridge/agents.cjs`: Pi CLI launch and translation to provider-independent events.
 - `bridge/cli.cjs`: Tailscale discovery, credential generation, QR code, and pairing code.
 
-Tests use a local fake Pi process and do not send model requests. They cover authentication, first-message ordering, image transport, reconnection, command deduplication, and pairing validation. GitHub Actions runs tests and the production build.
+Tests use a local fake Pi process and do not send model requests. They cover authentication, first-message ordering, image transport, reconnection, command deduplication, and pairing validation. GitHub Actions runs Obsidian-specific lint checks, tests and the production build.
 
 ## Source provenance
 

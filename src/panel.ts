@@ -1,5 +1,6 @@
 import { panelHeight } from './viewport';
-export interface Attachment { id: string; name: string; text?: string; data?: string; mimeType?: string; }
+import { userMessage } from './references';
+export interface Attachment { id: string; name: string; path?: string; text?: string; data?: string; mimeType?: string; }
 export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; final: boolean; }
 export interface PanelActions {
   send(text: string, attachments: Attachment[]): void;
@@ -13,6 +14,7 @@ export interface PanelActions {
   effort(level: string): void;
   permissions(mode: string): void;
   icon?(element: HTMLElement, name: string): void;
+  openNote?(path: string): void;
   markdown(text: string, element: HTMLElement): void;
   changed(messages: ChatMessage[]): void;
 }
@@ -78,7 +80,7 @@ export class ChatPanel {
     const composer = node('form', 'edge-composer');
     this.chips = node('div', 'edge-attachments');
     this.input = node('textarea', 'edge-input'); this.input.placeholder = 'Ask Pi…'; this.input.rows = 2; this.input.setAttribute('aria-label', 'Message');
-    this.input.addEventListener('input', () => { this.input.style.height = 'auto'; this.input.style.height = Math.min(140, this.input.scrollHeight) + 'px'; });
+    this.input.addEventListener('input', () => { this.input.style.removeProperty('--edge-input-height'); this.input.style.setProperty('--edge-input-height', Math.min(140, this.input.scrollHeight) + 'px'); });
     this.input.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); this.submit(); } });
     this.input.addEventListener('paste', event => {
       const files = [...(event.clipboardData?.files || [])].filter(file => file.type.startsWith('image/'));
@@ -102,7 +104,8 @@ export class ChatPanel {
     this.permissions.addEventListener('change', () => { const selected = this.permissions.value; this.permissions.value = this.currentPermissions; actions.permissions(selected); });
     const primary = node('div', 'edge-primary-actions');
     this.stopButton = this.iconButton('Stop', 'Stop generation', actions.stop, 'square'); this.stopButton.hidden = true;
-    this.sendButton = this.iconButton('↑', 'Send message', () => this.submit(), 'arrow-up', 'mod-cta');
+    this.sendButton = this.iconButton('↑', 'Send message', () => this.submit(), 'arrow-up', 'mod-cta edge-send-button');
+    this.sendButton.append(node('span', 'edge-send-label', 'Send'));
     primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.permissions, primary);
     composer.append(this.chips, this.input, upload, toolbar);
     composer.addEventListener('submit', event => { event.preventDefault(); this.submit(); });
@@ -129,14 +132,14 @@ export class ChatPanel {
         viewportTop: viewport?.offsetTop ?? 0, keyboardHeight,
         top: this.root.getBoundingClientRect().top }) + 'px';
     };
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(update); };
     viewport?.addEventListener('resize', schedule); viewport?.addEventListener('scroll', schedule);
     window.addEventListener('resize', schedule); this.root.addEventListener('focusin', schedule); this.root.addEventListener('focusout', schedule);
     const observer = new MutationObserver(schedule);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
     observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
     this.viewportCleanup = () => {
-      cancelAnimationFrame(frame); observer.disconnect();
+      window.cancelAnimationFrame(frame); observer.disconnect();
       viewport?.removeEventListener('resize', schedule); viewport?.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule); this.root.removeEventListener('focusin', schedule); this.root.removeEventListener('focusout', schedule);
       this.root.style.removeProperty('max-height');
@@ -149,7 +152,7 @@ export class ChatPanel {
     if (this.state === 'disconnected') { this.actions.pair(); return; }
     try {
       this.actions.send(text || 'Please look at the attached context.', [...this.attachments]);
-      this.input.value = ''; this.input.style.height = ''; this.attachments = []; this.renderAttachments();
+      this.input.value = ''; this.input.style.removeProperty('--edge-input-height'); this.attachments = []; this.renderAttachments();
       this.setBusy(true); this.typingText.textContent = this.state === 'ready' ? 'Thinking…' : 'Waiting for connection…';
     } catch (error) { this.error((error as Error).message); }
   }
@@ -216,15 +219,26 @@ export class ChatPanel {
       const element = node('article', `edge-message edge-${message.role}`);
       element.append(node('div', 'edge-message-label', message.role === 'user' ? 'You' : 'Pi'));
       const body = node('div', 'edge-message-body'); element.append(body);
-      if (message.role === 'assistant') element.append(this.iconButton('Copy', 'Copy response', () => { void navigator.clipboard.writeText(this.rows.get(message.id)?.text || '').catch(() => this.error('Could not copy. Select the text to copy it.')); }, 'copy', 'edge-copy'));
+      element.append(this.iconButton('Copy', message.role === 'user' ? 'Copy message' : 'Copy response', () => { const text = this.rows.get(message.id)?.text || ''; void navigator.clipboard.writeText(message.role === 'user' ? userMessage(text).text : text).catch(() => this.error('Could not copy. Select the text to copy it.')); }, 'copy', 'edge-copy'));
       this.transcript.insertBefore(element, this.typing); row = { row: element, body, text: '', final: false }; this.rows.set(message.id, row);
     }
     if (row.text !== message.text || row.final !== message.final) {
       row.text = message.text; row.final = message.final; row.row.classList.toggle('is-streaming', !message.final);
       row.body.replaceChildren();
-      const display = message.role === 'user' ? message.text.split('\n\n<note-context>')[0] : message.text;
+      const content = userMessage(message.text);
+      const display = message.role === 'user' ? content.text : message.text;
       if (message.final && message.role === 'assistant') this.actions.markdown(display, row.body);
       else row.body.textContent = display;
+      if (message.role === 'user' && content.references.length) {
+        const links = node('div', 'edge-message-references');
+        for (const reference of content.references) {
+          const link = node('a', 'internal-link edge-note-reference', reference.name);
+          link.href = reference.path; link.dataset.href = reference.path;
+          link.addEventListener('click', event => { event.preventDefault(); this.actions.openNote?.(reference.path); });
+          links.append(link);
+        }
+        row.body.append(links);
+      }
     }
     const index = this.messages.findIndex(item => item.id === message.id);
     if (index >= 0) this.messages[index] = message; else this.messages.push(message);

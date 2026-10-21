@@ -13,3 +13,11 @@ Conversational answers and temporary checklists do not require a saved note.
 Keep source, configuration, AGENTS instructions, and repository-required docs in
 this repository; honor explicit destinations in the current request.
 <!-- END OBSIDIAN_PROJECT_NOTES -->
+
+## Fold installation
+After plugin changes, build and install on the user's connected Fold using
+`python3 dev/install-fold.py`. The user requests this for every update. The script
+selects the Fold by device model and verifies the three installed file hashes.
+Preserve plugin data and pairing. If ADB is disconnected, report that installation
+is pending. Installed files activate after the user reloads Pi Edge in Obsidian;
+do not force-stop Obsidian with potentially unsaved notes.

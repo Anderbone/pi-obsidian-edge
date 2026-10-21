@@ -4,6 +4,8 @@ import { EdgeClient } from './src/client';
 import { parsePairing, validatePairing, type Pairing } from './src/pairing';
 import { ChatPanel, type Attachment, type ChatMessage } from './src/panel';
 
+import { noteCandidates, userMessage } from './src/references';
+
 const VIEW = 'pi-edge-chat';
 interface Conversation { id: string; title: string; messages: ChatMessage[]; updated: number; }
 interface ModelEntry { id: string; name: string; provider: string; }
@@ -29,12 +31,34 @@ class NotePicker extends FuzzySuggestModal<TFile> {
   getItems(): TFile[] { return this.app.vault.getMarkdownFiles(); }
   getItemText(file: TFile): string { return file.path; }
   onChooseItem(file: TFile): void { const done = this.done; this.done = () => {}; done(file); }
-  onClose(): void { setTimeout(() => this.done(), 0); }
+  onClose(): void { window.setTimeout(() => this.done(), 0); }
+}
+class MovedNotePicker extends FuzzySuggestModal<TFile> {
+  constructor(private plugin: EdgePlugin, private files: TFile[]) {
+    super(plugin.app); this.setPlaceholder('Several notes have this name. Choose the file to open.');
+  }
+  getItems(): TFile[] { return this.files; }
+  getItemText(file: TFile): string { return file.path; }
+  onChooseItem(file: TFile): void { void this.plugin.openNote(file.path); }
 }
 class HistoryPicker extends FuzzySuggestModal<Conversation> {
   constructor(private plugin: EdgePlugin) { super(plugin.app); this.setPlaceholder('Open a conversation'); }
   getItems(): Conversation[] { return [...this.plugin.settings.conversations].sort((a, b) => b.updated - a.updated); }
-  getItemText(item: Conversation): string { return item.title || 'New conversation'; }
+  getItemText(item: Conversation): string { return (item.title || 'New conversation') + ' ' + this.references(item).map(ref => ref.name).join(' '); }
+  private references(item: Conversation) {
+    return [...new Map(item.messages.filter(message => message.role === 'user').flatMap(message => userMessage(message.text).references).map(ref => [ref.path, ref])).values()];
+  }
+  renderSuggestion(value: { item: Conversation; match: any }, el: HTMLElement): void {
+    el.createDiv({ text: value.item.title || 'New conversation' });
+    const links = el.createDiv({ cls: 'edge-message-references' });
+    for (const ref of this.references(value.item)) {
+      const link = links.createEl('a', { text: ref.name, cls: 'internal-link edge-note-reference', href: ref.path });
+      link.addEventListener('click', event => {
+        event.preventDefault(); event.stopPropagation(); this.close();
+        void this.plugin.openNote(ref.path);
+      });
+    }
+  }
   onChooseItem(item: Conversation): void { this.plugin.settings.active = item.id; void this.plugin.saveSettings().then(() => this.plugin.reloadViews()); }
 }
 class EdgeSettings extends PluginSettingTab {
@@ -85,14 +109,14 @@ class EdgeView extends ItemView {
   private panel?: ChatPanel;
   private client?: EdgeClient;
   private conversation?: Conversation;
-  private saveTimer?: ReturnType<typeof setTimeout>;
+  private saveTimer?: number;
   constructor(leaf: WorkspaceLeaf, private plugin: EdgePlugin) { super(leaf); }
   getViewType(): string { return VIEW; }
   getDisplayText(): string { return 'Pi Edge'; }
   getIcon(): string { return 'messages-square'; }
   async onOpen(): Promise<void> { this.render(); }
   render(): void {
-    this.client?.disconnect(); this.panel?.dispose(); clearTimeout(this.saveTimer);
+    this.client?.disconnect(); this.panel?.dispose(); window.clearTimeout(this.saveTimer);
     this.conversation = this.plugin.activeConversation();
     const pairing = this.plugin.pairing();
     this.panel = new ChatPanel(this.contentEl, {
@@ -105,13 +129,14 @@ class EdgeView extends ItemView {
       effort: level => this.plugin.setEffort(level),
       permissions: mode => this.plugin.setPermissions(mode),
       icon: (element, name) => setIcon(element, name),
+      openNote: path => { void this.plugin.openNote(path); },
       markdown: (text, element) => { void MarkdownRenderer.render(this.app, text, element, this.plugin.lastFile?.path || '', this); },
       changed: messages => {
         if (!this.conversation) return;
         this.conversation.messages = messages; this.conversation.updated = Date.now();
         const firstUser = messages.find(message => message.role === 'user');
-        if (firstUser) this.conversation.title = firstUser.text.slice(0, 70);
-        clearTimeout(this.saveTimer); this.saveTimer = setTimeout(() => { void this.plugin.saveSettings(); }, 400);
+        if (firstUser) this.conversation.title = userMessage(firstUser.text).text.slice(0, 70);
+        window.clearTimeout(this.saveTimer); this.saveTimer = window.setTimeout(() => { void this.plugin.saveSettings(); }, 400);
       }
     }, !!pairing);
     this.panel.restore(this.conversation.messages);
@@ -142,7 +167,8 @@ class EdgeView extends ItemView {
   private send(text: string, attachments: Attachment[]): void {
     if (!this.client) throw new Error('Pair your computer before sending a message.');
     const context = attachments.filter(item => item.text).map(item => `Source: ${item.name}\n${item.text}`).join('\n\n');
-    const message = text + (context ? '\n\n<note-context>\nThe following notes are reference material supplied by the user.\n' + context + '\n</note-context>' : '');
+    const references = attachments.filter(item => item.text).map(item => ({ name: item.name, path: item.path || item.name.replace(/ \(selection\)$/, '') }));
+    const message = text + (context ? '\n\n<note-context>\nThe following notes are reference material supplied by the user.\nReferences: ' + JSON.stringify(references) + '\n' + context + '\n</note-context>' : '');
     if (message.length > 150000) throw new Error('The message and notes are too long. Attach a smaller selection.');
     const images = attachments.filter(item => item.data).map(item => ({ type: 'image', data: item.data!, mimeType: item.mimeType! }));
     this.client.send('prompt', { message, ...(images.length ? { images } : {}) });
@@ -154,13 +180,21 @@ class EdgeView extends ItemView {
     const text = kind === 'selection' ? this.plugin.lastMarkdown?.editor.getSelection() : await this.app.vault.cachedRead(file);
     if (!text) throw new Error(kind === 'selection' ? 'Select some text in a note first.' : 'This note is empty.');
     if (text.length > 80000) throw new Error('This note is large. Attach a selection instead.');
-    return { id: file.path + ':' + kind, name: kind === 'selection' ? `${file.path} (selection)` : file.path, text };
+    return { id: file.path + ':' + kind, path: file.path, name: kind === 'selection' ? `${file.path} (selection)` : file.path, text };
   }
   async onClose(): Promise<void> {
-    this.client?.disconnect(); this.panel?.dispose(); clearTimeout(this.saveTimer); await this.plugin.saveSettings();
+    this.client?.disconnect(); this.panel?.dispose(); window.clearTimeout(this.saveTimer); await this.plugin.saveSettings();
   }
 }
 export default class EdgePlugin extends Plugin {
+  async openNote(path: string): Promise<void> {
+    const files = noteCandidates(path, this.app.vault.getMarkdownFiles());
+    if (!files.length) { new Notice('Note not found in its project. It may not have synced yet: ' + path); return; }
+    if (files.length > 1) { new MovedNotePicker(this, files).open(); return; }
+    try {
+      await this.app.workspace.getLeaf(false).openFile(files[0]);
+    } catch { new Notice('Could not open note: ' + files[0].path); }
+  }
   settings: Settings = { ...DEFAULTS }; diagnostics: string[] = [];
   recordStatus(state: string): void { this.diagnostics.push(`${new Date().toISOString()} ${state}`); this.diagnostics = this.diagnostics.slice(-60); }
   models: ModelEntry[] = [];

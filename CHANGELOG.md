@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- First stable GitHub release, prepared for community-directory submission.
+- Clickable attached-note links in user messages and the conversation history picker, including older chats.
+- Recover moved notes by exact filename within the original project; ask when multiple files match.
+- Copy user messages without including the hidden attached-note content.
+- Preserve mobile viewport and composer behavior with dynamic CSS properties.
+- Add Obsidian-specific lint checks to CI and regression coverage for note references and moved files.
+
 ## 0.2.0
 
 - Compact Obsidian-themed layout, right-aligned user bubbles and left-aligned Pi replies.
