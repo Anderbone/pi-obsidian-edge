@@ -74,6 +74,10 @@
 .edge-panel .edge-attachment { font-size:10px; min-height:24px; padding:3px 5px; max-width:100%; overflow:hidden; text-overflow:ellipsis; background:var(--background-modifier-hover,#ffffff0a); }
 .edge-pair-input { width:100%; min-height:140px; font-family:var(--font-monospace,monospace); font-size:12px; }
 .edge-diagnostics { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+.edge-connection-test { display:flex; align-items:center; gap:6px; margin-top:6px; color:var(--text-muted,#999); }
+.edge-connection-test::before { content:''; width:7px; height:7px; border-radius:50%; background:currentColor; }
+.edge-connection-test[data-state='connected'] { color:var(--color-green,#68a878); }
+.edge-connection-test[data-state='error'] { color:var(--text-error,#e78d8d); }
 @keyframes edge-enter { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }
 @keyframes edge-pulse { 50% { opacity:.3; } }
 @keyframes edge-think { 0%,65%,100% { transform:translateY(0); opacity:.35; } 30% { transform:translateY(-4px); opacity:1; } }

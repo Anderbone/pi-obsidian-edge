@@ -2,23 +2,24 @@ import { Plugin, ItemView, WorkspaceLeaf, PluginSettingTab, Setting, Modal, Noti
   MarkdownRenderer, FuzzySuggestModal, TFile, setIcon } from 'obsidian';
 import { EdgeClient } from './src/client';
 import { parsePairing, validatePairing, type Pairing } from './src/pairing';
-import { ChatPanel, type Attachment, type ChatMessage } from './src/panel';
+import { ChatPanel, type Attachment } from './src/panel';
+import { checkConnection } from './src/connection';
+import { DEFAULT_HISTORY_LIMITS, historyLimits, positiveInteger, pruneHistory, type Conversation, type HistoryLimits } from './src/history';
 
 import { noteCandidates, userMessage } from './src/references';
 
 const VIEW = 'pi-edge-chat';
-interface Conversation { id: string; title: string; messages: ChatMessage[]; updated: number; }
 interface ModelEntry { id: string; name: string; provider: string; }
 interface PermissionMode { id: string; label: string; }
 const PERMISSIONS: PermissionMode[] = [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }];
-interface Settings { permissions: string; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
-const DEFAULTS: Settings = { permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
+interface Settings extends HistoryLimits { permissions: string; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
+const DEFAULTS: Settings = { ...DEFAULT_HISTORY_LIMITS, permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
 
 class PairModal extends Modal {
   constructor(private plugin: EdgePlugin, private initial = '') { super(plugin.app); }
   onOpen(): void {
     this.titleEl.setText('Pair your computer');
-    this.contentEl.createEl('p', { text: 'Paste the connection code printed by the Pi Edge bridge on your computer. Keep Tailscale running on both devices.' });
+    this.contentEl.createEl('p', { text: 'Paste the connection code printed by the Pi Edge bridge on your computer. This device must be able to reach the bridge address.' });
     const input = this.contentEl.createEl('textarea', { cls: 'edge-pair-input', attr: { placeholder: 'pi-edge:v1:…', 'aria-label': 'Connection code', spellcheck: 'false' } });
     input.value = this.initial;
     new Setting(this.contentEl).addButton(button => button.setButtonText('Connect').setCta().onClick(async () => {
@@ -63,18 +64,31 @@ class HistoryPicker extends FuzzySuggestModal<Conversation> {
 }
 class EdgeSettings extends PluginSettingTab {
   private cleanup?: () => void;
+  private renderCleanup?: () => void;
   constructor(private plugin: EdgePlugin) { super(plugin.app, plugin); }
-  display(): void { this.cleanup?.(); const refresh = () => renderSettings(this.containerEl, this.plugin); refresh(); this.plugin.catalogListeners.add(refresh); this.cleanup = () => this.plugin.catalogListeners.delete(refresh); }
+  display(): void { this.cleanup?.(); const refresh = () => { this.renderCleanup?.(); this.renderCleanup = renderSettings(this.containerEl, this.plugin); }; refresh(); this.plugin.catalogListeners.add(refresh); this.cleanup = () => { this.plugin.catalogListeners.delete(refresh); this.renderCleanup?.(); }; }
   hide(): void { this.cleanup?.(); }
 }
-function renderSettings(container: HTMLElement, plugin: EdgePlugin): void {
+function renderSettings(container: HTMLElement, plugin: EdgePlugin): () => void {
   container.empty();
     new Setting(container).setName('Computer connection').setHeading();
-    new Setting(container).setName('Pair computer').setDesc('Paste one code to fill in the Tailscale address and token.').addButton(button => button.setButtonText('Paste code').onClick(() => new PairModal(plugin).open()));
-    new Setting(container).setName('Bridge address').setDesc('Your computer Tailscale address, for example ws://100.x.x.x:8771.').addText(text => text.setValue(plugin.settings.url).setPlaceholder('ws://100.x.x.x:8771').onChange(value => { plugin.settings.url = value.trim(); void plugin.saveSettings(); }));
+    new Setting(container).setName('Pair computer').setDesc('Paste one code to fill in the bridge address and token.').addButton(button => button.setButtonText('Paste code').onClick(() => new PairModal(plugin).open()));
+    new Setting(container).setName('Bridge address').setDesc('An address reachable from this device, starting with ws:// or wss://.').addText(text => text.setValue(plugin.settings.url).setPlaceholder('ws://192.168.1.20:8771').onChange(value => { plugin.settings.url = value.trim(); plugin.invalidateConnectionTest(); void plugin.saveSettings(); }));
     new Setting(container).setName('Bridge token').setDesc('Stored on this device only, outside synced plugin settings.').addText(text => {
       text.inputEl.type = 'password'; text.setValue(plugin.token()).onChange(value => plugin.setToken(value.trim()));
     });
+    const connection = new Setting(container).setName('Connection test').setDesc('Checks the bridge address and pairing token without sending a prompt.');
+    const connectionStatus = connection.descEl.createDiv({ cls: 'edge-connection-test', attr: { role: 'status' } });
+    let refreshConnection = () => {};
+    connection.addButton(button => {
+      button.setButtonText('Test connection').onClick(() => { void plugin.testConnection(); });
+      refreshConnection = () => {
+        button.setDisabled(plugin.connectionState.state === 'testing');
+        connectionStatus.setText(plugin.connectionState.message);
+        connectionStatus.dataset.state = plugin.connectionState.state;
+      };
+    });
+    refreshConnection(); plugin.connectionListeners.add(refreshConnection);
     new Setting(container).setName('Reconnect').setDesc('Apply a changed address or token.').addButton(button => button.setButtonText('Reconnect').onClick(() => plugin.reloadViews()));
     new Setting(container).setName('Connection diagnostics').setDesc('Connection transitions only; excludes tokens, prompts and note content.').addButton(button => button.setButtonText('View').onClick(() => { const modal = new Modal(plugin.app); modal.titleEl.setText('Connection diagnostics'); modal.contentEl.createEl('pre', { text: plugin.diagnostics.join('\n') || 'No connection events yet.', cls: 'edge-diagnostics' }); modal.open(); }));
     new Setting(container).setName('Pi preferences').setHeading();
@@ -95,14 +109,31 @@ function renderSettings(container: HTMLElement, plugin: EdgePlugin): void {
       dropdown.setValue(plugin.settings.permissions).setDisabled(plugin.busy).onChange(value => plugin.setPermissions(value));
     });
     new Setting(container).setName('Conversation history').setHeading();
-    new Setting(container).setName('Local history').setDesc('Up to 30 conversations are saved in plugin data, capped at 2 MB. Images are sent to Pi but are not stored in local history.');
-    new Setting(container).setName('Clear local history').setDesc('Removes this plugin’s saved chat copies. Pi sessions on the computer remain separate.').addButton(button => button.setButtonText('Clear history').onClick(async () => { plugin.settings.conversations = []; plugin.settings.active = ''; await plugin.saveSettings(); plugin.reloadViews(); renderSettings(container, plugin); }));
+    new Setting(container).setName('Local history').setDesc('Saved on this device in plugin data and may sync with your vault. Images are not stored in local history.');
+    for (const [key, name, description] of [
+      ['historyMaxConversations', 'Maximum conversations', 'Default: 500. Oldest conversations are removed when the limit is reached.'],
+      ['historyMaxMB', 'Maximum history size', 'Default: 50 MB. Increase this to keep more conversation text.']
+    ] as const) {
+      let value = String(plugin.settings[key]);
+      new Setting(container).setName(name).setDesc(description).addText(text => {
+        text.setValue(value).setPlaceholder(String(DEFAULT_HISTORY_LIMITS[key])).onChange(next => { value = next; });
+        text.inputEl.type = 'number'; text.inputEl.min = '1'; text.inputEl.step = '1';
+        text.inputEl.setAttribute('aria-label', name);
+      }).addButton(button => button.setButtonText('Apply').onClick(async () => {
+        const limit = positiveInteger(value);
+        if (!limit) { new Notice('Enter a positive whole number.'); return; }
+        plugin.settings[key] = limit; await plugin.saveSettings(); new Notice('History limit saved.');
+      }));
+    }
+    new Setting(container).setName('Clear local history').setDesc('Removes this plugin’s saved chat copies. Pi sessions on the computer remain separate.').addButton(button => button.setButtonText('Clear history').onClick(async () => { plugin.settings.conversations = []; plugin.settings.active = ''; await plugin.saveSettings(); plugin.reloadViews(); }));
+    return () => plugin.connectionListeners.delete(refreshConnection);
 }
 class SettingsModal extends Modal {
+  private renderCleanup?: () => void;
   constructor(private plugin: EdgePlugin) { super(plugin.app); }
-  private refresh = () => renderSettings(this.contentEl, this.plugin);
+  private refresh = () => { this.renderCleanup?.(); this.renderCleanup = renderSettings(this.contentEl, this.plugin); };
   onOpen(): void { this.titleEl.setText('Pi Edge settings'); this.refresh(); this.plugin.catalogListeners.add(this.refresh); }
-  onClose(): void { this.plugin.catalogListeners.delete(this.refresh); }
+  onClose(): void { this.plugin.catalogListeners.delete(this.refresh); this.renderCleanup?.(); }
 }
 
 class EdgeView extends ItemView {
@@ -196,6 +227,33 @@ export default class EdgePlugin extends Plugin {
     } catch { new Notice('Could not open note: ' + files[0].path); }
   }
   settings: Settings = { ...DEFAULTS }; diagnostics: string[] = [];
+  connectionState: { state: 'idle' | 'testing' | 'connected' | 'error'; message: string } = { state: 'idle', message: 'Not tested' };
+  connectionListeners = new Set<() => void>();
+  private connectionTest?: AbortController;
+  private connectionResult(state: typeof this.connectionState.state, message: string): void {
+    this.connectionState = { state, message };
+    for (const listener of this.connectionListeners) listener();
+  }
+  invalidateConnectionTest(): void {
+    const pending = this.connectionTest; this.connectionTest = undefined; pending?.abort();
+    this.connectionResult('idle', 'Not tested');
+  }
+  async testConnection(): Promise<void> {
+    if (this.connectionTest) return;
+    let pairing: Pairing;
+    try { pairing = validatePairing({ url: this.settings.url, token: this.token() }); }
+    catch { this.connectionResult('error', 'Pair your computer or check the bridge address and token.'); return; }
+    const controller = new AbortController(); this.connectionTest = controller;
+    this.connectionResult('testing', 'Testing…');
+    try {
+      await checkConnection(pairing, controller.signal);
+      if (this.connectionTest === controller) this.connectionResult('connected', 'Connected');
+    } catch (error) {
+      if (this.connectionTest === controller) this.connectionResult('error', (error as Error).message);
+    } finally {
+      if (this.connectionTest === controller) this.connectionTest = undefined;
+    }
+  }
   recordStatus(state: string): void { this.diagnostics.push(`${new Date().toISOString()} ${state}`); this.diagnostics = this.diagnostics.slice(-60); }
   models: ModelEntry[] = [];
   effortLevels: string[] = [];
@@ -219,7 +277,7 @@ export default class EdgePlugin extends Plugin {
   lastFile?: TFile; lastMarkdown?: MarkdownView;
   private storageKey(): string { return `pi-edge:${this.app.vault.getName()}:${this.app.vault.configDir}:token`; }
   token(): string { return localStorage.getItem(this.storageKey()) || ''; }
-  setToken(token: string): void { if (token) localStorage.setItem(this.storageKey(), token); else localStorage.removeItem(this.storageKey()); }
+  setToken(token: string): void { if (token) localStorage.setItem(this.storageKey(), token); else localStorage.removeItem(this.storageKey()); this.invalidateConnectionTest(); }
   pairing(): Pairing | undefined { try { return validatePairing({ url: this.settings.url, token: this.token() }); } catch { return undefined; } }
   async pair(pairing: Pairing): Promise<void> { this.settings.url = pairing.url; this.setToken(pairing.token); await this.saveSettings(); this.reloadViews(); await this.openPanel(); new Notice('Computer paired.'); }
   activeConversation(): Conversation {
@@ -228,12 +286,7 @@ export default class EdgePlugin extends Plugin {
     return conversation;
   }
   async saveSettings(): Promise<void> {
-    this.settings.conversations = this.settings.conversations.sort((a, b) => b.updated - a.updated).slice(0, 30);
-    for (const conversation of this.settings.conversations) conversation.messages = conversation.messages.slice(-150);
-    while (new TextEncoder().encode(JSON.stringify(this.settings)).byteLength > 2000000) {
-      if (this.settings.conversations.length > 1) this.settings.conversations.pop();
-      else { this.settings.conversations[0]?.messages.shift(); if (!this.settings.conversations[0]?.messages.length) break; }
-    }
+    this.settings.conversations = pruneHistory(this.settings.conversations, this.settings.active, this.settings);
     await this.saveData(this.settings);
   }
   reloadViews(): void { for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).render(); }
@@ -245,6 +298,8 @@ export default class EdgePlugin extends Plugin {
   }
   async onload(): Promise<void> {
     this.settings = { ...DEFAULTS, ...await this.loadData() };
+    Object.assign(this.settings, historyLimits(this.settings));
+    this.register(() => this.invalidateConnectionTest());
     this.lastFile = this.app.workspace.getActiveFile() || undefined;
     this.lastMarkdown = this.app.workspace.getActiveViewOfType(MarkdownView) || undefined;
     this.registerView(VIEW, leaf => new EdgeView(leaf, this));

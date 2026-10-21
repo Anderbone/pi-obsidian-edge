@@ -59,7 +59,7 @@ export class EdgeClient {
         this.hooks.event(message);
       }
     };
-    socket.onerror = () => { if (current()) this.hooks.status('error', 'Could not reach the computer. Check its bridge and VPN.'); };
+    socket.onerror = () => { if (current()) this.hooks.status('error', 'Could not reach the computer. Check its bridge address and network connection.'); };
     socket.onclose = event => {
       if (!current()) return;
       this.ready = false;

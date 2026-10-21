@@ -5,3 +5,4 @@ main.js
 !.env.example
 *.log
 preview.js
+dist/

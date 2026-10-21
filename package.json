@@ -1,13 +1,15 @@
 {
   "name": "pi-obsidian-edge",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "An original mobile-first Obsidian client and paired bridge for the Pi coding agent.",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && node esbuild.mjs",
+    "build:bridge": "node dev/build-bridge.mjs",
     "test": "node --import tsx --test tests/*.test.ts tests/*.test.cjs",
+    "test:bridge-package": "node dev/test-bridge-package.cjs",
     "bridge": "node bridge/cli.cjs",
     "preview": "node dev/preview.cjs",
     "lint": "eslint main.ts src --max-warnings 0"

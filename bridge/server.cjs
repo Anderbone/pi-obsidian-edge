@@ -127,6 +127,9 @@ function createBridge(options) {
       let message;
       try { message = JSON.parse(raw.toString()); } catch { return ws.close(4003, 'Invalid JSON'); }
       if (!message || typeof message !== 'object') return ws.close(4003, 'Invalid message');
+      if (message.type === 'edge.ping' && message.protocol === 1) {
+        return send(ws, { type: 'edge.pong', protocol: 1 });
+      }
       if (!ws.session) {
         if (message.type !== 'edge.hello' || message.protocol !== 1 ||
             typeof message.clientId !== 'string' || !/^[a-zA-Z0-9-]{8,100}$/.test(message.clientId)) return ws.close(4003, 'Unsupported handshake');

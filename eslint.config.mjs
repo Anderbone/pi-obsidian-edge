@@ -16,4 +16,4 @@ export default [{
     // The shared UI and client also run in the standalone browser preview and Node tests.
     'obsidianmd/prefer-create-el': 'off'
   }
-}, { files: ['src/client.ts'], rules: { 'obsidianmd/prefer-window-timers': 'off' } }];
+}, { files: ['src/client.ts', 'src/connection.ts'], rules: { 'obsidianmd/prefer-window-timers': 'off' } }];

@@ -15,6 +15,8 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - run: npm run build:bridge
+      - run: npm run test:bridge-package
       - uses: actions/upload-artifact@v4
         with:
           name: pi-edge-plugin
@@ -22,3 +24,7 @@ jobs:
             main.js
             manifest.json
             styles.css
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi-edge-bridge
+          path: dist/pi-edge-bridge.tgz

@@ -17,6 +17,15 @@ function setup() {
   }, () => { const socket = new Socket(); sockets.push(socket); return socket; });
   return { client, sockets, events, states };
 }
+test('connects through a secure reverse-proxy path and encodes the token', () => {
+  let address = '';
+  const client = new EdgeClient({ url: 'wss://pi.example.com/edge', token: 'token+/=' }, 'client-proxy', { status() {}, event() {} }, url => {
+    address = url; return new Socket();
+  });
+  client.connect();
+  assert.equal(address, 'wss://pi.example.com/edge/rpc?token=token%2B%2F%3D');
+  client.disconnect();
+});
 test('queues first prompt including images until bridge readiness, not only WebSocket open', t => {
   const { client, sockets } = setup(); t.after(() => client.disconnect());
   client.send('prompt', { message: 'hi', images: [{ data: 'abc', mimeType: 'image/png' }] });

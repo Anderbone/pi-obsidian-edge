@@ -1,6 +1,7 @@
 import { ChatPanel } from '../src/panel';
 const root = document.getElementById('app')!;
 const params = new URLSearchParams(location.search);
+if (params.has('desktop')) root.style.maxWidth = '960px';
 const panel = new ChatPanel(root, {
   send(text, attachments) {
     panel.handle({ kind: 'message', id: String(Date.now()), role: 'user', text, final: true });
@@ -21,9 +22,17 @@ const panel = new ChatPanel(root, {
   permissions(mode) { panel.setPermissions(mode, [{id: 'read', label:'Read only'}, {id:'edit',label:'Read & write'}, {id:'full',label:'Full access'}]); },
   model() {}, effort(level) { panel.setEffort(level); }, markdown(text, element) { element.textContent = text; }, changed() {}
 }, !params.has('unpaired'));
-if (!params.has('unpaired')) panel.statusChanged('ready', 'Connected · Tailscale');
+if (!params.has('unpaired')) panel.statusChanged('ready', 'Connected');
 
 if (!params.has('unpaired')) { panel.setModels([{id:'openai/gpt-6.1-sol',name:'GPT-6.1 Sol',provider:'openai'},{id:'example/chat',name:'Chat model',provider:'example'}], 'openai/gpt-6.1-sol'); panel.setEffortLevels(['low','medium','high','xhigh','max']); }
 
 if (params.has('no-effort')) panel.setEffortLevels(['off']);
+if (params.has('demo') && !params.has('unpaired')) {
+  panel.restore([
+    { id: 'demo-note', role: 'user', text: 'Turn this note into three next steps.\n\n<note-context>\nSource: Project notes.md\nPreview note context.\n</note-context>', final: true },
+    { id: 'demo-summary', role: 'assistant', text: 'Start with a short outline, build one small prototype, then review what worked before expanding the project.', final: true },
+    { id: 'demo-followup', role: 'user', text: 'Keep it focused on this week.', final: true },
+    { id: 'demo-plan', role: 'assistant', text: 'This week: draft the outline, make a small prototype, and write down what you learn. Leave the rest in the backlog.', final: true }
+  ]);
+}
 if (params.has('waiting')) { panel.restore([{id:'sample',role:'user',text:'Review the selected note.',final:true}]); panel.setBusy(true); }

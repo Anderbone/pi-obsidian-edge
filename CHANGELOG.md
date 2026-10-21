@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2
+
+- Standalone bridge package runnable with npx, without cloning the repository or compiling.
+- Automatically select a Tailscale or private LAN address for one-command setup.
+- Add a settings connection test with a green connected result and no model requests.
+- Increase local history defaults to 500 conversations / 50 MB, add configurable limits, and remove the 150-message cap.
+- Add a copyable agent setup prompt to the shorter README.
+- Support LAN, loopback, other VPNs, IPv6, and custom ws/wss pairing addresses; Tailscale is optional.
+- Separate bind and pairing addresses with `--host` and `--url`, including TLS reverse proxies with path prefixes.
+- Shorter README with desktop/phone UI previews, a Community Plugins entrypoint, and separate user/development guides.
+- Verify standalone package installation and authentication in CI; attach it to future tagged releases.
+
 ## 0.2.1
 
 - First stable GitHub release, prepared for community-directory submission.

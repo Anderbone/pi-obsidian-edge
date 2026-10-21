@@ -1,0 +1,32 @@
+name: Release
+on:
+  push:
+    tags: ['[0-9]*']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check release version
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; const version = process.env.GITHUB_REF_NAME; for (const file of ["package.json", "manifest.json"]) assert.equal(JSON.parse(fs.readFileSync(file)).version, version);'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run build:bridge
+      - run: npm run test:bridge-package
+      - name: Publish plugin and standalone bridge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; const heading = "## " + process.env.GITHUB_REF_NAME + "\n"; const entry = fs.readFileSync("CHANGELOG.md", "utf8").split(heading)[1]?.split("\n## ")[0]?.trim(); if (!entry) throw new Error("Missing changelog entry"); fs.writeFileSync(process.env.RUNNER_TEMP + "/pi-edge-release.md", entry + "\n");'
+          gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css dist/pi-edge-bridge.tgz --verify-tag --notes-file "$RUNNER_TEMP/pi-edge-release.md" --title "Pi Edge $GITHUB_REF_NAME"

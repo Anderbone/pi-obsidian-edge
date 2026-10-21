@@ -43,6 +43,15 @@ test('authentication protects HTTP and WebSocket endpoints', async t => {
   const closed = once(ws, 'close'); await once(ws, 'open');
   assert.equal((await closed)[0], 4001);
 });
+test('authenticated connection tests use the WebSocket route without launching a Pi session', async t => {
+  const { url, launches } = await setup(t);
+  const ws = new WebSocket(`${url}/rpc?token=${token}`); t.after(() => ws.terminate());
+  await once(ws, 'open');
+  const reply = waitFor(ws, value => value.type === 'edge.pong');
+  ws.send(JSON.stringify({ type: 'edge.ping', protocol: 1 }));
+  assert.equal((await reply).protocol, 1);
+  assert.equal(launches.length, 0);
+});
 test('host policy controls arguments; images pass through; output uses provider-independent events', async t => {
   const { url, launches } = await setup(t, { tools: 'read,grep,find,ls' }); const { ws } = await connect(url); t.after(() => ws.terminate());
   assert.equal(launches[0].options.cwd, __dirname);

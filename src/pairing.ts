@@ -7,10 +7,10 @@ export function validatePairing(value: unknown): Pairing {
   }
   const parsed = new URL(url);
   if (!['ws:', 'wss:'].includes(parsed.protocol) || parsed.username || parsed.password ||
-      parsed.search || parsed.hash || !['', '/', '/rpc'].includes(parsed.pathname)) {
+      parsed.search || parsed.hash || ['0.0.0.0', '[::]'].includes(parsed.hostname)) {
     throw new Error('Use a ws:// or wss:// bridge address without credentials or query parameters.');
   }
-  return { url: url.replace(/\/+$/, '').replace(/\/rpc$/, ''), token };
+  return { url: parsed.href.replace(/\/+$/, '').replace(/\/rpc$/, ''), token };
 }
 export function parsePairing(input: string): Pairing {
   let code = input.trim();
