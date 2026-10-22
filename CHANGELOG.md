@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+- Fix a false connection-test failure with older bridges while normal chat still works.
+- Fall back to the existing authenticated health endpoint when a bridge does not support the newer WebSocket probe.
+- Keep connection tests independent of active chat sessions and model requests; older bridges do not need to be restarted.
+
 ## 0.2.2
 
 - Standalone bridge package runnable with npx, without cloning the repository or compiling.

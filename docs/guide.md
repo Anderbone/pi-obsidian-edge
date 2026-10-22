@@ -58,7 +58,7 @@ Run **Pi Edge: Pair computer**, paste the connection code from the computer, the
 
 ## Connection help
 
-In Pi Edge settings, click **Test connection**. Green **Connected** confirms that the WebSocket bridge accepts your pairing token. The test does not start a Pi session or send a model request. If it asks you to update the bridge, stop the old bridge and run the latest npx command above.
+In Pi Edge settings, click **Test connection**. Green **Connected** confirms that the WebSocket bridge accepts your pairing token. The test does not start a Pi session or send a model request. Older bridges are checked using their existing authenticated health endpoint, so the test does not require a computer bridge restart.
 
 - **No connection code:** run the bridge in an interactive terminal. If it runs as a service, read `~/.config/pi-obsidian-edge/connection-code.txt` on the computer.
 - **Cannot connect:** check that the bridge address is reachable, the computer is awake, and the bridge is still running. On a LAN, check the computer firewall and whether the Wi-Fi isolates devices. For VPN access, connect both devices to that VPN. Pair the device again if the address or token changed.

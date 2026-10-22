@@ -1,5 +1,5 @@
 import { Plugin, ItemView, WorkspaceLeaf, PluginSettingTab, Setting, Modal, Notice, MarkdownView,
-  MarkdownRenderer, FuzzySuggestModal, TFile, setIcon } from 'obsidian';
+  MarkdownRenderer, FuzzySuggestModal, TFile, setIcon, requestUrl } from 'obsidian';
 import { EdgeClient } from './src/client';
 import { parsePairing, validatePairing, type Pairing } from './src/pairing';
 import { ChatPanel, type Attachment } from './src/panel';
@@ -246,7 +246,7 @@ export default class EdgePlugin extends Plugin {
     const controller = new AbortController(); this.connectionTest = controller;
     this.connectionResult('testing', 'Testing…');
     try {
-      await checkConnection(pairing, controller.signal);
+      await checkConnection(pairing, controller.signal, undefined, 8000, url => requestUrl({ url, throw: false }));
       if (this.connectionTest === controller) this.connectionResult('connected', 'Connected');
     } catch (error) {
       if (this.connectionTest === controller) this.connectionResult('error', (error as Error).message);

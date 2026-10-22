@@ -1,9 +1,11 @@
 import type { Pairing } from './pairing';
 import type { SocketLike } from './client';
 
+export type HealthCheck = (url: string) => Promise<{ status: number; json: unknown }>;
+
 export function checkConnection(pairing: Pairing, signal?: AbortSignal,
   createSocket: (url: string) => SocketLike = url => new WebSocket(url) as unknown as SocketLike,
-  timeoutMs = 8000): Promise<void> {
+  timeoutMs = 8000, healthCheck?: HealthCheck): Promise<void> {
   return new Promise((resolve, reject) => {
     let socket: SocketLike | undefined;
     let timer: ReturnType<typeof setTimeout>;
@@ -32,7 +34,21 @@ export function checkConnection(pairing: Pairing, signal?: AbortSignal,
       if (message?.type === 'edge.pong' && message.protocol === 1) complete();
     };
     socket.onerror = () => complete('Could not reach the computer. Check the bridge address and network connection.');
-    socket.onclose = event => complete(event.code === 4001 ? 'Pairing expired. Paste a new connection code.'
-      : event.code === 4003 ? 'Update the computer bridge and try again.' : 'The bridge closed the connection. Try again.');
+    socket.onclose = event => {
+      if (event.code === 4003 && healthCheck) {
+        // Older bridges reject edge.ping but expose the same authenticated health endpoint.
+        const url = new URL(`${pairing.url}/health`);
+        url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+        url.searchParams.set('token', pairing.token);
+        void healthCheck(url.href).then(response => {
+          const health = response.json as { ok?: unknown; protocol?: unknown } | null;
+          if (response.status === 401) complete('Pairing expired. Paste a new connection code.');
+          else if (response.status === 200 && health?.ok === true && health.protocol === 1) complete();
+          else complete('The bridge did not return a valid connection test response.');
+        }).catch(() => complete('Could not verify the bridge. Check the bridge address and network connection.'));
+        return;
+      }
+      complete(event.code === 4001 ? 'Pairing expired. Paste a new connection code.' : 'The bridge closed the connection. Try again.');
+    };
   });
 }
