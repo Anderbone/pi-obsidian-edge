@@ -11,7 +11,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      # Keep installation independent of the external npm advisory service.
+      - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test

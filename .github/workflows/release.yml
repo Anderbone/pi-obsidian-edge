@@ -18,7 +18,8 @@ jobs:
       - name: Check release version
         run: |
           node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; const version = process.env.GITHUB_REF_NAME; for (const file of ["package.json", "manifest.json"]) assert.equal(JSON.parse(fs.readFileSync(file)).version, version);'
-      - run: npm ci
+      # Keep installation independent of the external npm advisory service.
+      - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test

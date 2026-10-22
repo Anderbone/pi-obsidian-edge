@@ -41,6 +41,8 @@ The bridge source runs through the development dependency `tsx` after `npm ci`. 
 
 `shared/protocol.ts` defines protocol 1 commands, events, models, messages, and permission presets. The bridge keeps its runtime authentication, command allow-list, and image validation; static types do not validate incoming JSON. Compile-time tests in `tests/protocol.types.ts` reject invalid commands and fields. Integration tests exchange messages between the real client and bridge and retain legacy connection-test coverage.
 
+CI installs with `npm ci --no-audit --no-fund` so an unavailable npm advisory service does not block builds. Dependency audits can be run separately with `npm audit`.
+
 ## Standalone bridge distribution
 
 `npm run build:bridge` creates `dist/pi-edge-bridge.tgz`, containing the CLI, bundled runtime dependencies, and license notices. Pi and Node.js remain separate prerequisites. Users run it using `npx`; the package has no install scripts or runtime npm dependencies and does not require an npm registry publication.
