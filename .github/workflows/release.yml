@@ -19,6 +19,7 @@ jobs:
         run: |
           node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; const version = process.env.GITHUB_REF_NAME; for (const file of ["package.json", "manifest.json"]) assert.equal(JSON.parse(fs.readFileSync(file)).version, version);'
       - run: npm ci
+      - run: npm run typecheck
       - run: npm run lint
       - run: npm test
       - run: npm run build

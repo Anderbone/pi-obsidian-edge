@@ -1,6 +1,7 @@
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const { resolveNetwork, lanAddress } = require('../bridge/network.cjs');
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import type { NetworkInterfaceInfo } from 'node:os';
+import { resolveNetwork, lanAddress } from '../bridge/network';
 
 test('Tailscale is optional; explicit hosts and proxy URLs bypass discovery', () => {
   assert.deepEqual(resolveNetwork({}, () => undefined, () => undefined), { host: '127.0.0.1', port: 8771, url: 'ws://127.0.0.1:8771' });
@@ -15,7 +16,7 @@ test('Tailscale is optional; explicit hosts and proxy URLs bypass discovery', ()
   });
 });
 test('LAN discovery selects a private physical interface rather than a container or loopback', () => {
-  const address = (address, internal = false) => ({ address, internal, family: 'IPv4' });
+  const address = (address: string, internal = false): NetworkInterfaceInfo => ({ address, internal, family: 'IPv4', netmask: '255.255.255.0', mac: '00:00:00:00:00:00', cidr: null });
   assert.equal(lanAddress({ lo: [address('127.0.0.1', true)], docker0: [address('172.17.0.1')], wlan0: [address('192.168.1.20')] }), '192.168.1.20');
   assert.equal(lanAddress({ eth0: [address('203.0.113.7'), address('169.254.1.2')] }), undefined);
 });

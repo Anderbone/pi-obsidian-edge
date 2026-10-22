@@ -15,6 +15,10 @@ async function main() {
   let child, socket;
   try {
     const archive = path.resolve(process.argv[2] || path.join(root, 'dist/pi-edge-bridge.tgz'));
+    const legacyHelp = execFileSync(process.execPath, [path.join(root, 'bridge/cli.cjs'), '--help'], {
+      cwd: temporary, encoding: 'utf8', timeout: 10000
+    });
+    assert.match(legacyHelp, /Usage: pi-edge-bridge/);
     const cache = path.join(temporary, 'npm-cache');
     const npx = path.join(path.dirname(process.env.npm_execpath), 'npx-cli.js');
     const help = execFileSync(process.execPath, [npx, '--offline', '--yes', '--cache', cache, '--package', archive, 'pi-edge-bridge', '--help'], {
@@ -33,7 +37,8 @@ async function main() {
     try {
       const remote = await promisify(execFile)(process.execPath, [npx, '--yes', '--cache', path.join(temporary, 'download-cache'),
         `http://127.0.0.1:${download.address().port}/pi-edge-bridge.tgz`, '--help'], {
-        cwd: temporary, encoding: 'utf8', timeout: 30000, env: { ...process.env, npm_config_update_notifier: 'false' }
+        cwd: temporary, encoding: 'utf8', timeout: 30000,
+        env: { ...process.env, npm_config_update_notifier: 'false', npm_config_audit: 'false', npm_config_fund: 'false' }
       });
       assert.match(remote.stdout, /Usage: pi-edge-bridge/);
     } finally { await new Promise(resolve => download.close(resolve)); }

@@ -5,14 +5,13 @@ import { parsePairing, validatePairing, type Pairing } from './src/pairing';
 import { ChatPanel, type Attachment } from './src/panel';
 import { checkConnection } from './src/connection';
 import { DEFAULT_HISTORY_LIMITS, historyLimits, positiveInteger, pruneHistory, type Conversation, type HistoryLimits } from './src/history';
+import { isPermissionId, type ClientEvent, type ModelEntry, type PermissionId, type PermissionMode } from './shared/protocol';
 
 import { noteCandidates, userMessage } from './src/references';
 
 const VIEW = 'pi-edge-chat';
-interface ModelEntry { id: string; name: string; provider: string; }
-interface PermissionMode { id: string; label: string; }
 const PERMISSIONS: PermissionMode[] = [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }];
-interface Settings extends HistoryLimits { permissions: string; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
+interface Settings extends HistoryLimits { permissions: PermissionId; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
 const DEFAULTS: Settings = { ...DEFAULT_HISTORY_LIMITS, permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
 
 class PairModal extends Modal {
@@ -49,7 +48,7 @@ class HistoryPicker extends FuzzySuggestModal<Conversation> {
   private references(item: Conversation) {
     return [...new Map(item.messages.filter(message => message.role === 'user').flatMap(message => userMessage(message.text).references).map(ref => [ref.path, ref])).values()];
   }
-  renderSuggestion(value: { item: Conversation; match: any }, el: HTMLElement): void {
+  renderSuggestion(value: { item: Conversation }, el: HTMLElement): void {
     el.createDiv({ text: value.item.title || 'New conversation' });
     const links = el.createDiv({ cls: 'edge-message-references' });
     for (const ref of this.references(value.item)) {
@@ -106,7 +105,7 @@ function renderSettings(container: HTMLElement, plugin: EdgePlugin): () => void 
     });
     new Setting(container).setName('Permissions').setDesc('Applies to this conversation. Full access includes read, write, edit and shell tools.').addDropdown(dropdown => {
       for (const mode of plugin.permissionModes) dropdown.addOption(mode.id, mode.label);
-      dropdown.setValue(plugin.settings.permissions).setDisabled(plugin.busy).onChange(value => plugin.setPermissions(value));
+      dropdown.setValue(plugin.settings.permissions).setDisabled(plugin.busy).onChange(value => { if (isPermissionId(value)) plugin.setPermissions(value); });
     });
     new Setting(container).setName('Conversation history').setHeading();
     new Setting(container).setName('Local history').setDesc('Saved on this device in plugin data and may sync with your vault. Images are not stored in local history.');
@@ -194,14 +193,14 @@ class EdgeView extends ItemView {
     this.plugin.settings.defaultModel = id; void this.plugin.saveSettings();
   }
   setEffort(level: string): void { this.client?.send('set_thinking_level', { level }); }
-  setPermissions(mode: string): void { this.client?.send('edge.permissions', { mode }); }
+  setPermissions(mode: PermissionId): void { this.client?.send('edge.permissions', { mode }); }
   private send(text: string, attachments: Attachment[]): void {
     if (!this.client) throw new Error('Pair your computer before sending a message.');
     const context = attachments.filter(item => item.text).map(item => `Source: ${item.name}\n${item.text}`).join('\n\n');
     const references = attachments.filter(item => item.text).map(item => ({ name: item.name, path: item.path || item.name.replace(/ \(selection\)$/, '') }));
     const message = text + (context ? '\n\n<note-context>\nThe following notes are reference material supplied by the user.\nReferences: ' + JSON.stringify(references) + '\n' + context + '\n</note-context>' : '');
     if (message.length > 150000) throw new Error('The message and notes are too long. Attach a smaller selection.');
-    const images = attachments.filter(item => item.data).map(item => ({ type: 'image', data: item.data!, mimeType: item.mimeType! }));
+    const images = attachments.filter(item => item.data).map(item => ({ type: 'image' as const, data: item.data!, mimeType: item.mimeType! }));
     this.client.send('prompt', { message, ...(images.length ? { images } : {}) });
   }
   private async attach(kind: 'note' | 'selection' | 'browse'): Promise<Attachment | undefined> {
@@ -263,8 +262,8 @@ export default class EdgePlugin extends Plugin {
   private activeView(): EdgeView | undefined { return this.app.workspace.getLeavesOfType(VIEW)[0]?.view as EdgeView | undefined; }
   selectModel(id: string): void { this.activeView()?.selectModel(id); }
   setEffort(level: string): void { this.settings.thinking = level; void this.saveSettings(); this.activeView()?.setEffort(level); }
-  setPermissions(mode: string): void { this.activeView()?.setPermissions(mode); }
-  updateCatalog(event: any): void {
+  setPermissions(mode: PermissionId): void { this.activeView()?.setPermissions(mode); }
+  updateCatalog(event: ClientEvent): void {
     let changed = false;
     if (event.type === 'edge.ready') { this.settings.permissions = event.permissions || 'full'; this.permissionModes = event.permissionModes || PERMISSIONS; void this.saveSettings(); changed = true; }
     if (event.kind === 'models') { this.models = event.models; changed = true; }

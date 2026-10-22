@@ -1,5 +1,6 @@
 import type { Pairing } from './pairing';
 import type { SocketLike } from './client';
+import type { PingPacket } from '../shared/protocol';
 
 export type HealthCheck = (url: string) => Promise<{ status: number; json: unknown }>;
 
@@ -27,7 +28,7 @@ export function checkConnection(pairing: Pairing, signal?: AbortSignal,
     timer = setTimeout(() => complete('Connection timed out. Check that the computer and bridge are running.'), timeoutMs);
     try { socket = createSocket(`${pairing.url}/rpc?token=${encodeURIComponent(pairing.token)}`); }
     catch { return complete('Could not open the bridge address. Check the address and network connection.'); }
-    socket.onopen = () => socket?.send(JSON.stringify({ type: 'edge.ping', protocol: 1 }));
+    socket.onopen = () => socket?.send(JSON.stringify({ type: 'edge.ping', protocol: 1 } satisfies PingPacket));
     socket.onmessage = event => {
       let message;
       try { message = JSON.parse(String(event.data)); } catch { return; }

@@ -1,4 +1,4 @@
-import type { ChatMessage } from './panel';
+import type { ChatMessage } from '../shared/protocol';
 
 export interface Conversation { id: string; title: string; messages: ChatMessage[]; updated: number; }
 export interface HistoryLimits { historyMaxConversations: number; historyMaxMB: number; }

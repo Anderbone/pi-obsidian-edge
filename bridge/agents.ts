@@ -1,9 +1,33 @@
+import type { AgentEvent, AgentInfo } from '../shared/protocol';
+import { isRecord } from '../shared/protocol';
+
+interface PiMessage {
+  role?: string; content?: string | { type: string; text?: string }[];
+  timestamp?: number; id?: string; errorMessage?: string;
+}
+interface PiModel { provider?: string; id?: string; name?: string; reasoning?: boolean; }
+interface PiData extends PiModel {
+  model?: PiModel; isStreaming?: boolean; thinkingLevel?: string;
+  levels?: string[]; messages?: PiMessage[]; models?: PiModel[];
+}
+interface PiEvent {
+  type?: string; message?: PiMessage; assistantMessageEvent?: { type?: string };
+  toolCallId?: string; toolName?: string; isError?: boolean;
+  success?: boolean; command?: string; error?: string; data?: PiData;
+}
+export interface AgentLaunchOptions { pi?: string; tools: string; sessionId?: string; model?: string; }
+export interface AgentCommand { executable: string; args: string[]; }
+export interface AgentAdapter extends AgentInfo {
+  launch(options: AgentLaunchOptions): AgentCommand;
+  normalize(value: unknown): AgentEvent[];
+}
+
 // Adapter-owned CLI arguments and event translation. No provider protocol reaches the UI.
-function text(message) {
+function text(message: PiMessage | undefined): string {
   if (typeof message?.content === 'string') return message.content;
   return (message?.content || []).filter(block => block.type === 'text').map(block => block.text).join('\n');
 }
-const pi = {
+const pi: AgentAdapter = {
   id: 'pi', label: 'Pi', capabilities: { models: true, cancel: true, tools: true, newSession: true },
   launch(options) {
     const args = ['--mode', 'rpc', '--tools', options.tools, '--no-extensions', '--no-mcp', '--no-skills', '--no-approve'];
@@ -11,8 +35,10 @@ const pi = {
     if (options.model) args.push('--model', options.model);
     return { executable: options.pi || 'pi', args };
   },
-  normalize(event) {
-    const key = message => `${message?.role}:${message?.timestamp || message?.id || 'current'}`;
+  normalize(value): AgentEvent[] {
+    if (!isRecord(value)) return [];
+    const event = value as PiEvent;
+    const key = (message: PiMessage | undefined) => `${message?.role}:${message?.timestamp || message?.id || 'current'}`;
     switch (event.type) {
       case 'agent_start': return [{ kind: 'run.started' }];
       case 'agent_settled':
@@ -26,7 +52,7 @@ const pi = {
       case 'message_end':
         if (event.message?.role !== 'assistant') return [];
         return [{ kind: 'message', id: key(event.message), role: 'assistant', text: text(event.message), final: true },
-          ...(event.message.errorMessage ? [{ kind: 'error', message: event.message.errorMessage }] : [])];
+          ...(event.message.errorMessage ? [{ kind: 'error' as const, message: event.message.errorMessage }] : [])];
       case 'tool_execution_start': return [{ kind: 'tool', id: event.toolCallId, name: event.toolName, phase: 'running' }];
       case 'tool_execution_end': return [{ kind: 'tool', id: event.toolCallId, name: event.toolName, phase: event.isError ? 'failed' : 'completed' }];
       case 'extension_ui_request': return [{ kind: 'error', message: 'This agent requested an unsupported interaction. Complete it on the computer or stop the run.' }];
@@ -37,7 +63,7 @@ const pi = {
         if (event.command === 'get_available_thinking_levels') return [{ kind: 'effort.levels', levels: event.data?.levels || ['off'] }];
         if (event.command === 'set_thinking_level') return [{ kind: 'state.refresh' }];
         if (event.command === 'set_model' && event.data) { const model = event.data.model || event.data; return [{ kind: 'model', model: `${model.provider}/${model.id}` }, { kind: 'state.refresh' }]; }
-        if (event.command === 'get_messages') return [{ kind: 'history', messages: (event.data?.messages || []).filter(message => ['user', 'assistant'].includes(message.role) && text(message)).map(message => ({ id: key(message), role: message.role, text: text(message), final: true })) }];
+        if (event.command === 'get_messages') return [{ kind: 'history', messages: (event.data?.messages || []).filter(message => (message.role === 'user' || message.role === 'assistant') && text(message)).map(message => ({ id: key(message), role: message.role as 'user' | 'assistant', text: text(message), final: true })) }];
         if (event.command === 'get_available_models') return [{ kind: 'models', models: (event.data?.models || []).map(model => ({
           id: `${model.provider}/${model.id}`, name: `${model.provider} / ${model.name || model.id}`, provider: model.provider, modelId: model.id })) }];
         if (event.command === 'new_session') return [{ kind: 'session.new' }];
@@ -46,8 +72,12 @@ const pi = {
     }
   }
 };
-const agents = new Map([[pi.id, pi]]);
-module.exports = {
-  getAgent(id) { const adapter = agents.get(id); if (!adapter) throw new Error('Agent is not enabled on this computer.'); return adapter; },
-  listAgents() { return [...agents.values()].map(({ id, label, capabilities }) => ({ id, label, capabilities })); }
-};
+const agents = new Map<string, AgentAdapter>([[pi.id, pi]]);
+export function getAgent(id: string): AgentAdapter {
+  const adapter = agents.get(id);
+  if (!adapter) throw new Error('Agent is not enabled on this computer.');
+  return adapter;
+}
+export function listAgents(): AgentInfo[] {
+  return [...agents.values()].map(({ id, label, capabilities }) => ({ id, label, capabilities }));
+}

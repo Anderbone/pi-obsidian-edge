@@ -1,7 +1,8 @@
 import { panelHeight } from './viewport';
 import { userMessage } from './references';
+import { isPermissionId, type AgentEvent, type ChatMessage, type ErrorPacket, type ModelEntry, type PermissionId, type PermissionMode } from '../shared/protocol';
+export type { ChatMessage } from '../shared/protocol';
 export interface Attachment { id: string; name: string; path?: string; text?: string; data?: string; mimeType?: string; }
-export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; final: boolean; }
 export interface PanelActions {
   send(text: string, attachments: Attachment[]): void;
   stop(): void;
@@ -12,7 +13,7 @@ export interface PanelActions {
   attach(kind: 'note' | 'selection' | 'browse'): Promise<Attachment | undefined>;
   model(id: string): void;
   effort(level: string): void;
-  permissions(mode: string): void;
+  permissions(mode: PermissionId): void;
   icon?(element: HTMLElement, name: string): void;
   openNote?(path: string): void;
   markdown(text: string, element: HTMLElement): void;
@@ -30,7 +31,7 @@ export class ChatPanel {
   private model: HTMLSelectElement;
   private effort: HTMLSelectElement;
   private permissions: HTMLSelectElement;
-  private currentPermissions = 'full';
+  private currentPermissions: PermissionId = 'full';
   private typing: HTMLElement;
   private typingText: HTMLElement;
   private viewportCleanup?: () => void;
@@ -101,7 +102,7 @@ export class ChatPanel {
     references.append(this.iconButton('Image', 'Attach images', () => upload.click(), 'image'));
     this.permissions = node('select', 'edge-permissions'); this.permissions.setAttribute('aria-label', 'Permissions'); this.permissions.title = 'Tool permissions';
     this.setPermissions('full', [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }]);
-    this.permissions.addEventListener('change', () => { const selected = this.permissions.value; this.permissions.value = this.currentPermissions; actions.permissions(selected); });
+    this.permissions.addEventListener('change', () => { const selected = this.permissions.value; this.permissions.value = this.currentPermissions; if (isPermissionId(selected)) actions.permissions(selected); });
     const primary = node('div', 'edge-primary-actions');
     this.stopButton = this.iconButton('Stop', 'Stop generation', actions.stop, 'square'); this.stopButton.hidden = true;
     this.sendButton = this.iconButton('↑', 'Send message', () => this.submit(), 'arrow-up', 'mod-cta edge-send-button');
@@ -115,7 +116,7 @@ export class ChatPanel {
   private iconButton(label: string, title: string, action: () => void, icon: string, cls = ''): HTMLButtonElement {
     const element = button(label, title, action, `edge-icon-button ${cls}`); this.actions.icon?.(element, icon); return element;
   }
-  setPermissions(mode: string, modes: { id: string; label: string }[]): void {
+  setPermissions(mode: PermissionId, modes: PermissionMode[]): void {
     this.currentPermissions = mode; this.permissions.replaceChildren(...modes.map(item => new Option(item.label, item.id))); this.permissions.value = mode;
   }
   private trackViewport(): void {
@@ -168,7 +169,7 @@ export class ChatPanel {
     this.sendButton.disabled = value; this.stopButton.hidden = !value;
     if (!value) this.activity.textContent = '';
   }
-  setModels(models: { id: string; name: string; provider?: string }[], current = ''): void {
+  setModels(models: ModelEntry[], current = ''): void {
     this.model.replaceChildren();
     const groups = new Map<string, HTMLOptGroupElement>();
     for (const model of models) {
@@ -194,7 +195,7 @@ export class ChatPanel {
     if (![...this.model.options].some(option => option.value === model)) this.model.add(new Option(model, model));
     this.model.value = model;
   }
-  handle(event: any): void {
+  handle(event: AgentEvent | ErrorPacket): void {
     if (event.kind === 'message' && (event.role === 'user' || event.role === 'assistant')) {
       if (event.role === 'assistant' && !event.final) this.typingText.textContent = 'Responding…';
       if (event.text) this.upsert({ id: event.id, role: event.role, text: event.text, final: !!event.final });

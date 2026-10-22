@@ -1,15 +1,15 @@
-const { execFileSync } = require('node:child_process');
-const { isIP } = require('node:net');
-const { networkInterfaces } = require('node:os');
+import { execFileSync } from 'node:child_process';
+import { isIP } from 'node:net';
+import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os';
 
-function tailscaleAddress() {
+function tailscaleAddress(): string | undefined {
   try {
     const address = execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim().split('\n')[0];
     return isIP(address) === 4 ? address : undefined;
   } catch { return undefined; }
 }
 
-function lanAddress(interfaces = networkInterfaces()) {
+export function lanAddress(interfaces: Record<string, NetworkInterfaceInfo[] | undefined> = networkInterfaces()): string | undefined {
   for (const [name, addresses] of Object.entries(interfaces)) {
     if (/^(docker|br-|veth|virbr|vboxnet|vmnet|tun|tap|wg|tailscale)/i.test(name)) continue;
     for (const entry of addresses || []) {
@@ -19,7 +19,8 @@ function lanAddress(interfaces = networkInterfaces()) {
   }
 }
 
-function resolveNetwork(args, discover = tailscaleAddress, discoverLan = lanAddress) {
+export interface NetworkOptions { host?: string; url?: string; port?: string; }
+export function resolveNetwork(args: NetworkOptions, discover = tailscaleAddress, discoverLan: () => string | undefined = lanAddress) {
   const port = Number(args.port || 8771);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port.');
   const host = (args.host || (args.url ? undefined : discover() || discoverLan()) || '127.0.0.1').replace(/^\[(.*)\]$/, '$1');
@@ -36,4 +37,3 @@ function resolveNetwork(args, discover = tailscaleAddress, discoverLan = lanAddr
   return { host, port, url: url.href.replace(/\/+$/, '').replace(/\/rpc$/, '') };
 }
 
-module.exports = { resolveNetwork, lanAddress };

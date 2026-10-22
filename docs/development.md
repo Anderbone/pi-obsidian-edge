@@ -4,6 +4,7 @@
 
 ```sh
 npm ci
+npm run typecheck
 npm run lint
 npm test
 npm run build
@@ -17,10 +18,11 @@ The UI preview runs on `http://127.0.0.1:8781`, uses the real panel component, a
 - `main.ts`: Obsidian integration, pairing, settings, notes, and local history.
 - `src/client.ts`: readiness, queueing, reconnection, and replay deduplication.
 - `src/panel.ts`: mobile-friendly chat UI, attachments, and Markdown rendering callbacks.
-- `bridge/server.cjs`: authentication, session lifetime, host policy, and WebSocket transport.
-- `bridge/agents.cjs`: Pi CLI launch and translation to provider-independent events.
-- `bridge/cli.cjs`: bridge startup, credential generation, QR code, and pairing code.
-- `bridge/network.cjs`: optional Tailscale discovery, bind address, and client URL.
+- `bridge/server.ts`: authentication, session lifetime, host policy, and WebSocket transport.
+- `bridge/agents.ts`: Pi CLI launch and translation to provider-independent events.
+- `bridge/cli.ts`: bridge startup, credential generation, QR code, and pairing code.
+- `shared/protocol.ts`: messages, commands, models, and permission types used by the plugin and bridge.
+- `bridge/network.ts`: optional Tailscale discovery, bind address, and client URL.
 - `dev/build-bridge.mjs`: standalone bridge packaging with bundled runtime dependencies.
 
 Tests use a local fake Pi process and do not send model requests. They cover authentication, first-message ordering, image transport, reconnection, command deduplication, and pairing validation. GitHub Actions runs Obsidian-specific lint checks, tests and the production build.
@@ -31,7 +33,13 @@ Tests use a local fake Pi process and do not send model requests. They cover aut
 npm run bridge -- --cwd "/path/to/vault" --host 127.0.0.1
 ```
 
-No bridge compilation is required when running from source after `npm ci`.
+The bridge source runs through the development dependency `tsx` after `npm ci`. The small `bridge/cli.cjs` compatibility launcher keeps existing source-checkout service commands working; its application code is in `bridge/cli.ts`. The standalone release bundles that TypeScript entry into plain JavaScript and does not depend on `tsx` or TypeScript at runtime.
+
+## Type checking and protocol compatibility
+
+`npm run typecheck` uses strict TypeScript checking for the plugin, shared protocol, bridge, TypeScript tests, and UI preview. `npm run lint` covers the same source groups and disallows explicit `any`. Build/configuration scripts stay JavaScript, and `tests/fake-pi.cjs` remains a plain Node subprocess fixture so package tests verify a runtime with no TypeScript dependency.
+
+`shared/protocol.ts` defines protocol 1 commands, events, models, messages, and permission presets. The bridge keeps its runtime authentication, command allow-list, and image validation; static types do not validate incoming JSON. Compile-time tests in `tests/protocol.types.ts` reject invalid commands and fields. Integration tests exchange messages between the real client and bridge and retain legacy connection-test coverage.
 
 ## Standalone bridge distribution
 

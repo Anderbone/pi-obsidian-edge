@@ -5,6 +5,11 @@ import tseslint from 'typescript-eslint';
 const rules = Object.assign({}, ...obsidianmd.configs.recommended.map(config =>
   Object.fromEntries(Object.entries(config.rules || {}).filter(([name]) => name.startsWith('obsidianmd/')))));
 export default [{
+  files: ['main.ts', 'src/**/*.ts', 'bridge/**/*.ts', 'shared/**/*.ts', 'tests/**/*.ts', 'dev/preview.ts'],
+  plugins: { '@typescript-eslint': tseslint.plugin },
+  languageOptions: { parser: tseslint.parser, parserOptions: { project: './tsconfig.json' } },
+  rules: { '@typescript-eslint/no-explicit-any': 'error' }
+}, {
   files: ['main.ts', 'src/**/*.ts'],
   plugins: { obsidianmd },
   languageOptions: { parser: tseslint.parser, parserOptions: { project: './tsconfig.json' } },

@@ -17,6 +17,10 @@
   },
   "include": [
     "src/**/*.ts",
-    "main.ts"
+    "main.ts",
+    "shared/**/*.ts",
+    "bridge/**/*.ts",
+    "tests/**/*.ts",
+    "dev/preview.ts"
   ]
 }

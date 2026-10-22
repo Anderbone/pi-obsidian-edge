@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4
+
+- Migrate bridge application modules and their tests to TypeScript, with shared protocol, message, and permission types.
+- Strictly type-check the plugin, bridge, shared types, tests, and preview in CI; reject explicit any in those sources.
+- Preserve protocol 1, the standalone npx package, and existing source-checkout service commands.
+- Add compile-time contract checks, real client/bridge integration coverage, and regression checks for runtime validation.
+
 ## 0.2.3
 
 - Fix a false connection-test failure with older bridges while normal chat still works.
