@@ -42,13 +42,16 @@ https://community.obsidian.md/plugins/pi-edge
 
 ## Screenshots
 
-![Desktop chat with an attached note](docs/screenshots/desktop-chat.png)
+Chat beside your notes on a Galaxy Fold:
 
-| Phone chat | Pair your computer |
-| --- | --- |
-| <img src="docs/screenshots/mobile-chat.png" alt="Pi Edge phone chat" width="320"> | <img src="docs/screenshots/mobile-connect.png" alt="Pi Edge pairing entry screen" width="320"> |
+![Pi Edge running in Obsidian on a Galaxy Fold, with an attached note and chat](docs/screenshots/fold-chat.webp)
 
-*UI previews with sample content.*
+<details>
+<summary>Connection test and settings</summary>
+
+![Pi Edge settings on a Galaxy Fold showing a successful connection test, model, reasoning effort, and permissions](docs/screenshots/fold-settings.webp)
+
+</details>
 
 ## Good to know
 

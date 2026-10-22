@@ -12,7 +12,7 @@ npm run test:bridge-package
 npm run preview
 ```
 
-The UI preview runs on `http://127.0.0.1:8781`, uses the real panel component, and simulates a reply without contacting a model. It is not a live agent demonstration. Use `/?demo` for sample conversations, `/?demo&desktop` for a wider panel, or `/?unpaired` for the pairing entry screen. README screenshots use these previews at desktop and phone viewport sizes; they are not captures from the installed Obsidian app.
+The UI preview runs on `http://127.0.0.1:8781`, uses the real panel component, and simulates a reply without contacting a model. It is not a live agent demonstration. Use `/?demo` for sample conversations, `/?demo&desktop` for a wider panel, or `/?unpaired` for the pairing entry screen. README screenshots are actual user-provided Galaxy Fold captures with the Android status bar cropped out.
 
 - `main.ts`: Obsidian integration, pairing, settings, notes, and local history.
 - `src/client.ts`: readiness, queueing, reconnection, and replay deduplication.
