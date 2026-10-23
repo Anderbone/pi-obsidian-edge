@@ -13,7 +13,7 @@ Chat with **Pi on your computer from Obsidian on your phone or desktop**. Attach
 **1. On your computer**, run this with the path to your vault:
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.6/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.7/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 The bridge finds a Tailscale or local network address and prints a pairing code. Keep this terminal running and the computer awake.

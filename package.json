@@ -1,6 +1,6 @@
 {
   "name": "pi-obsidian-edge",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
   "description": "An original mobile-first Obsidian client and paired bridge for the Pi coding agent.",
   "license": "MIT",

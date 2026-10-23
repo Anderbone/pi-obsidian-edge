@@ -69,14 +69,15 @@ class EdgeSettings extends PluginSettingTab {
     super(plugin.app, plugin);
     const refresh = () => {
       if (requireApiVersion('1.13.0')) this.update();
-      else if (this.visible) this.display();
+      else if (this.visible) this.renderLegacy();
     };
     plugin.catalogListeners.add(refresh);
     plugin.register(() => plugin.catalogListeners.delete(refresh));
   }
   getSettingDefinitions(): SettingDefinitionItem[] { return settingsDefinitions(this.plugin); }
   // Obsidian before 1.13 uses the same rows through the imperative renderer.
-  display(): void { this.visible = true; this.renderCleanup?.(); this.renderCleanup = renderSettings(this.containerEl, this.plugin); }
+  display(): void { this.renderLegacy(); }
+  private renderLegacy(): void { this.visible = true; this.renderCleanup?.(); this.renderCleanup = renderSettings(this.containerEl, this.plugin); }
   hide(): void { this.visible = false; this.renderCleanup?.(); this.renderCleanup = undefined; }
 }
 interface SettingsRow { name: string; desc: string; render: (setting: Setting) => void | (() => void); }

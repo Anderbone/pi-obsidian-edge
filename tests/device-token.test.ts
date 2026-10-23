@@ -7,7 +7,7 @@ function storage() {
   return {
     values,
     loadLocalStorage: (key: string): unknown => values.get(key) ?? null,
-    saveLocalStorage: (key: string, value: unknown | null): void => {
+    saveLocalStorage: (key: string, value: unknown): void => {
       if (value === null) values.delete(key); else values.set(key, value);
     }
   };

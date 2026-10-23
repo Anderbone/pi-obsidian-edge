@@ -18,6 +18,8 @@ export default [{
     'obsidianmd/ui/sentence-case': ['warn', { brands: ['Pi', 'Pi Edge', 'Tailscale'], acronyms: ['MB'], ignoreRegex: ['^pi-edge:', '^ws://'] }],
     'obsidianmd/settings-tab/prefer-setting-definitions': 'error',
     // Match the source-code safety checks reported by the directory review.
+    '@typescript-eslint/no-redundant-type-constituents': 'error',
+    '@typescript-eslint/no-deprecated': 'error',
     '@typescript-eslint/no-unsafe-member-access': 'error',
     '@typescript-eslint/no-unsafe-assignment': 'error',
     '@typescript-eslint/no-unsafe-argument': 'error',

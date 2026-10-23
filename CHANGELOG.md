@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+- Remove the redundant nullable type reported by the community review.
+- Keep the legacy settings entry point while refreshing it through a private renderer instead of calling the deprecated Obsidian display API.
+- Enforce redundant-type and deprecated-API checks in plugin lint to prevent these warnings recurring.
+
 ## 0.2.6
 
 - Make plugin settings searchable through Obsidian 1.13+ declarative settings, with shared rendering for earlier versions and the chat settings modal.

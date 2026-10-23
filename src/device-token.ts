@@ -1,6 +1,6 @@
 interface VaultLocalStorage {
   loadLocalStorage(key: string): unknown;
-  saveLocalStorage(key: string, data: unknown | null): void;
+  saveLocalStorage(key: string, data: unknown): void;
 }
 
 const TOKEN_KEY = 'pi-edge:token';
