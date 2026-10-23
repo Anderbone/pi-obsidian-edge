@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,6 +28,14 @@ jobs:
       - run: npm run build
       - run: npm run build:bridge
       - run: npm run test:bridge-package
+      - name: Attest release assets
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+            dist/pi-edge-bridge.tgz
       - name: Publish plugin and standalone bridge
         env:
           GH_TOKEN: ${{ github.token }}

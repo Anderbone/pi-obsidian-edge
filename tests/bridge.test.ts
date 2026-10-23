@@ -1,3 +1,4 @@
+import './browser-timers';
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
@@ -6,8 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { WebSocket, type RawData } from 'ws';
-import { createBridge, type BridgeOptions } from '../bridge/server';
-import { getAgent } from '../bridge/agents';
+import { createBridge, type BridgeOptions } from '../bridge/server.mts';
+import { getAgent } from '../bridge/agents.mts';
 import type { AgentEvent, ServerPacket } from '../shared/protocol';
 import { EdgeClient, type SocketLike } from '../src/client';
 

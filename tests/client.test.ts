@@ -1,3 +1,4 @@
+import './browser-timers';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EdgeClient, type SocketLike } from '../src/client';

@@ -17,8 +17,8 @@ export interface ClientHooks {
 export class EdgeClient {
   private socket?: SocketLike;
   private pending: ClientCommand[] = [];
-  private timer?: ReturnType<typeof setTimeout>;
-  private deadline?: ReturnType<typeof setTimeout>;
+  private timer?: ReturnType<Window['setTimeout']>;
+  private deadline?: ReturnType<Window['setTimeout']>;
   private stopped = true;
   private ready = false;
   private attempts = 0;
@@ -34,7 +34,7 @@ export class EdgeClient {
     this.socket = socket;
     this.ready = false;
     const current = () => this.socket === socket;
-    this.deadline = setTimeout(() => { if (current() && !this.ready) socket.close(); }, 12000);
+    this.deadline = window.setTimeout(() => { if (current() && !this.ready) socket.close(); }, 12000);
     socket.onopen = () => {
       if (current()) socket.send(JSON.stringify({ type: 'edge.hello', protocol: 1, clientId: this.clientId, agent: 'pi', permissions: this.permissions } satisfies HelloPacket));
     };
@@ -45,7 +45,7 @@ export class EdgeClient {
       if (!isRecord(parsed)) return;
       const message = parsed as unknown as ServerPacket;
       if (message.type === 'edge.ready') {
-        clearTimeout(this.deadline);
+        window.clearTimeout(this.deadline);
         this.ready = true;
         this.attempts = 0;
         this.permissions = message.permissions || this.permissions;
@@ -67,7 +67,7 @@ export class EdgeClient {
       if (!current()) return;
       this.ready = false;
       this.socket = undefined;
-      clearTimeout(this.deadline);
+      window.clearTimeout(this.deadline);
       if (this.stopped) return;
       if (event.code === 4001 || event.code === 4003 || event.code === 4009) {
         this.pending = [];
@@ -75,7 +75,7 @@ export class EdgeClient {
         return;
       }
       this.hooks.status('reconnecting', 'Connection lost. Reconnecting…');
-      this.timer = setTimeout(() => this.connect(), Math.min(1000 * 2 ** this.attempts++, 15000));
+      this.timer = window.setTimeout(() => this.connect(), Math.min(1000 * 2 ** this.attempts++, 15000));
     };
   }
   send<K extends CommandType>(type: K, ...[fields]: CommandFields[K] extends undefined ? [fields?: undefined] : [fields: CommandFields[K]]): string {
@@ -91,8 +91,8 @@ export class EdgeClient {
   }
   disconnect(): void {
     this.stopped = true;
-    clearTimeout(this.timer);
-    clearTimeout(this.deadline);
+    window.clearTimeout(this.timer);
+    window.clearTimeout(this.deadline);
     this.pending = [];
     const socket = this.socket;
     this.socket = undefined;

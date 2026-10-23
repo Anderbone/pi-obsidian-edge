@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { createBridge } from './server';
-import { resolveNetwork } from './network';
+import { createBridge } from './server.mts';
+import { resolveNetwork } from './network.mts';
 import qr from 'qrcode-terminal';
-import { FULL_TOOLS } from './permissions';
+import { FULL_TOOLS } from './permissions.mts';
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -44,6 +44,6 @@ async function main(): Promise<void> {
     console.log(`Paste this connection code into Pi Edge on your phone:\n\n${code}\n\nOr open this link on the paired device:\n${link}\n\nKeep this code private. Ctrl+C stops the bridge.\n`);
   } else console.log(`Connection code saved privately to ${codeFile}.`);
   const stop = async () => { await bridge.close(); process.exit(0); };
-  process.once('SIGINT', stop); process.once('SIGTERM', stop);
+  process.once('SIGINT', () => { void stop(); }); process.once('SIGTERM', () => { void stop(); });
 }
-main().catch(error => { console.error(`Pi Edge: ${error.message}`); process.exitCode = 1; });
+main().catch((error: unknown) => { console.error(`Pi Edge: ${error instanceof Error ? error.message : 'Bridge startup failed.'}`); process.exitCode = 1; });

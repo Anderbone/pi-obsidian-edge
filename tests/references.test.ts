@@ -33,3 +33,7 @@ test('legacy chats recover note links and selection paths', () => {
   });
   assert.deepEqual(userMessage('Plain message'), { text: 'Plain message', references: [] });
 });
+test('malformed reference manifests fall back to source names without trusting unknown fields', () => {
+  const text = 'Question\n\n<note-context>\nReferences: [null,{"name":"bad","path":42}]\nSource: folder/note.md\nExcerpt\n</note-context>';
+  assert.deepEqual(userMessage(text), { text: 'Question', references: [{ name: 'folder/note.md', path: 'folder/note.md' }] });
+});

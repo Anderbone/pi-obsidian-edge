@@ -1,7 +1,16 @@
 import { ChatPanel } from '../src/panel';
 const root = document.getElementById('app')!;
 const params = new URLSearchParams(location.search);
-if (params.has('desktop')) root.style.maxWidth = '960px';
+root.classList.toggle('is-desktop-preview', params.has('desktop'));
+// The standalone browser preview supplies Obsidian's global DOM helper.
+window.createEl = (tag, options = {}, callback) => {
+  const element = document.createElement(tag);
+  const info = typeof options === 'string' ? { cls: options } : options;
+  element.className = Array.isArray(info.cls) ? info.cls.join(' ') : info.cls || '';
+  if (info.text !== undefined) element.textContent = String(info.text);
+  callback?.(element);
+  return element;
+};
 const panel = new ChatPanel(root, {
   send(text, attachments) {
     panel.handle({ kind: 'message', id: String(Date.now()), role: 'user', text, final: true });

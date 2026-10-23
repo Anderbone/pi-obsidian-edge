@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint';
 const rules = Object.assign({}, ...obsidianmd.configs.recommended.map(config =>
   Object.fromEntries(Object.entries(config.rules || {}).filter(([name]) => name.startsWith('obsidianmd/')))));
 export default [{
-  files: ['main.ts', 'src/**/*.ts', 'bridge/**/*.ts', 'shared/**/*.ts', 'tests/**/*.ts', 'dev/preview.ts'],
+  files: ['main.ts', 'src/**/*.ts', 'bridge/**/*.mts', 'shared/**/*.ts', 'tests/**/*.ts', 'dev/preview.mts'],
   plugins: { '@typescript-eslint': tseslint.plugin },
   languageOptions: { parser: tseslint.parser, parserOptions: { project: './tsconfig.json' } },
   rules: { '@typescript-eslint/no-explicit-any': 'error' }
@@ -18,7 +18,11 @@ export default [{
     'obsidianmd/ui/sentence-case': ['warn', { brands: ['Pi', 'Pi Edge', 'Tailscale'], acronyms: ['MB'], ignoreRegex: ['^pi-edge:', '^ws://'] }],
     // Retain compatibility with Obsidian 1.7.2; the declarative settings API needs 1.13.
     'obsidianmd/settings-tab/prefer-setting-definitions': 'off',
-    // The shared UI and client also run in the standalone browser preview and Node tests.
-    'obsidianmd/prefer-create-el': 'off'
+    // Match the source-code safety checks reported by the directory review.
+    '@typescript-eslint/no-unsafe-member-access': 'error',
+    '@typescript-eslint/no-unsafe-assignment': 'error',
+    '@typescript-eslint/no-unsafe-argument': 'error',
+    '@typescript-eslint/unbound-method': ['error', { ignoreStatic: true }],
+    '@typescript-eslint/no-misused-promises': 'error'
   }
-}, { files: ['src/client.ts', 'src/connection.ts'], rules: { 'obsidianmd/prefer-window-timers': 'off' } }];
+}];

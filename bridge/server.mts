@@ -3,8 +3,8 @@ import crypto from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { getAgent, listAgents, type AgentAdapter } from './agents';
-import { availableModes, toolsFor, FULL_TOOLS } from './permissions';
+import { getAgent, listAgents, type AgentAdapter } from './agents.mts';
+import { availableModes, toolsFor, FULL_TOOLS } from './permissions.mts';
 import { isRecord, RPC_COMMANDS, type EventPacket, type PermissionId, type PiRequest, type RpcCommandType, type ServerPacket } from '../shared/protocol';
 
 export interface BridgeOptions {

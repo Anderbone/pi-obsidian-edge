@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5
+
+- Fix the static-style assignment flagged by the community review and remove CSS important/duplicate-background warnings.
+- Use explicit ESM TypeScript extensions for standalone computer tools so the directory does not scan them as mobile plugin code; all remain type-checked.
+- Use browser window timers, safe JSON narrowing, and bound callbacks in the plugin, with stricter lint checks to prevent regressions.
+- Verify the mobile build does not import standalone bridge tools or Node.js dependencies.
+- Generate GitHub build-provenance attestations for plugin and bridge release assets.
+
 ## 0.2.4
 
 - Migrate bridge application modules and their tests to TypeScript, with shared protocol, message, and permission types.

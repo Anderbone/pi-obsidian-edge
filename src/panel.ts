@@ -20,7 +20,7 @@ export interface PanelActions {
   changed(messages: ChatMessage[]): void;
 }
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag); element.className = cls; element.textContent = text; return element;
+  return createEl(tag, { cls, text });
 }
 function button(label: string, title: string, action: () => void, cls = ''): HTMLButtonElement {
   const element = node('button', cls, label); element.type = 'button'; element.title = title; element.setAttribute('aria-label', title);
@@ -54,7 +54,7 @@ export class ChatPanel {
     const heading = node('div', 'edge-heading');
     heading.append(node('span', 'edge-mark', 'π'), node('h2', '', 'Pi Edge'));
     const controls = node('div', 'edge-header-actions');
-    controls.append(this.iconButton('+', 'New conversation', actions.fresh, 'plus'), this.iconButton('History', 'Conversation history', actions.history, 'history'), this.iconButton('Settings', 'Open settings', actions.settings, 'settings'));
+    controls.append(this.iconButton('+', 'New conversation', () => actions.fresh(), 'plus'), this.iconButton('History', 'Conversation history', () => actions.history(), 'history'), this.iconButton('Settings', 'Open settings', () => actions.settings(), 'settings'));
     header.append(heading, controls);
     const connection = node('div', 'edge-connection');
     this.status = node('span', 'edge-status', paired ? 'Connecting…' : 'Computer not paired'); this.status.setAttribute('role', 'status');
@@ -71,7 +71,7 @@ export class ChatPanel {
     this.empty = node('section', 'edge-empty');
     this.empty.append(node('h3', '', paired ? 'Start a conversation' : 'Connect your computer'),
       node('p', '', paired ? 'Ask Pi or attach a note to begin.' : 'Start the bridge on your computer, then paste its connection code here.'));
-    if (!paired) this.empty.append(button('Pair computer', 'Paste a connection code', actions.pair, 'mod-cta'));
+    if (!paired) this.empty.append(button('Pair computer', 'Paste a connection code', () => actions.pair(), 'mod-cta'));
     this.typing = node('div', 'edge-typing'); this.typing.hidden = true; this.typing.setAttribute('role', 'status');
     const dots = node('span', 'edge-typing-dots'); dots.setAttribute('aria-hidden', 'true');
     for (let index = 0; index < 3; index++) dots.append(node('i'));
@@ -95,7 +95,7 @@ export class ChatPanel {
     const toolbar = node('div', 'edge-toolbar');
     const references = node('div', 'edge-reference-actions');
     for (const [label, kind, title, icon] of [['Note', 'note', 'Attach current note', 'file-text'], ['Selection', 'selection', 'Attach selected text', 'text-select'], ['Browse', 'browse', 'Choose a note', 'search']] as const) {
-      references.append(this.iconButton(label, title, () => { void actions.attach(kind).then(item => { if (item) this.addAttachment(item); }).catch(error => this.error(error.message)); }, icon));
+      references.append(this.iconButton(label, title, () => { void actions.attach(kind).then(item => { if (item) this.addAttachment(item); }).catch((error: unknown) => this.error(error instanceof Error ? error.message : 'Could not attach the note.')); }, icon));
     }
     const upload = node('input'); upload.type = 'file'; upload.accept = 'image/png,image/jpeg,image/webp,image/gif'; upload.multiple = true; upload.hidden = true;
     upload.addEventListener('change', () => { void this.addImages([...(upload.files || [])]); upload.value = ''; });
@@ -104,7 +104,7 @@ export class ChatPanel {
     this.setPermissions('full', [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }]);
     this.permissions.addEventListener('change', () => { const selected = this.permissions.value; this.permissions.value = this.currentPermissions; if (isPermissionId(selected)) actions.permissions(selected); });
     const primary = node('div', 'edge-primary-actions');
-    this.stopButton = this.iconButton('Stop', 'Stop generation', actions.stop, 'square'); this.stopButton.hidden = true;
+    this.stopButton = this.iconButton('Stop', 'Stop generation', () => actions.stop(), 'square'); this.stopButton.hidden = true;
     this.sendButton = this.iconButton('↑', 'Send message', () => this.submit(), 'arrow-up', 'mod-cta edge-send-button');
     this.sendButton.append(node('span', 'edge-send-label', 'Send'));
     primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.permissions, primary);

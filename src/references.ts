@@ -1,4 +1,8 @@
+import { isRecord } from '../shared/protocol';
 export interface NoteReference { name: string; path: string; }
+function isNoteReference(value: unknown): value is NoteReference {
+  return isRecord(value) && typeof value.name === 'string' && typeof value.path === 'string';
+}
 
 // Vault project notes live under projects/<project>; other layouts stay within
 // the original top-level folder rather than guessing across unrelated folders.
@@ -23,7 +27,7 @@ export function userMessage(text: string): { text: string; references: NoteRefer
   if (manifest) {
     try {
       const items: unknown = JSON.parse(manifest[1]);
-      if (Array.isArray(items) && items.every(item => item && typeof item.name === 'string' && typeof item.path === 'string')) {
+      if (Array.isArray(items) && items.every(isNoteReference)) {
         return { text: text.slice(0, start), references: items };
       }
     } catch { /* Older messages fall back to source names. */ }

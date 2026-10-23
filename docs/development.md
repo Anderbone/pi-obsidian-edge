@@ -18,11 +18,11 @@ The UI preview runs on `http://127.0.0.1:8781`, uses the real panel component, a
 - `main.ts`: Obsidian integration, pairing, settings, notes, and local history.
 - `src/client.ts`: readiness, queueing, reconnection, and replay deduplication.
 - `src/panel.ts`: mobile-friendly chat UI, attachments, and Markdown rendering callbacks.
-- `bridge/server.ts`: authentication, session lifetime, host policy, and WebSocket transport.
-- `bridge/agents.ts`: Pi CLI launch and translation to provider-independent events.
-- `bridge/cli.ts`: bridge startup, credential generation, QR code, and pairing code.
+- `bridge/server.mts`: authentication, session lifetime, host policy, and WebSocket transport.
+- `bridge/agents.mts`: Pi CLI launch and translation to provider-independent events.
+- `bridge/cli.mts`: bridge startup, credential generation, QR code, and pairing code.
 - `shared/protocol.ts`: messages, commands, models, and permission types used by the plugin and bridge.
-- `bridge/network.ts`: optional Tailscale discovery, bind address, and client URL.
+- `bridge/network.mts`: optional Tailscale discovery, bind address, and client URL.
 - `dev/build-bridge.mjs`: standalone bridge packaging with bundled runtime dependencies.
 
 Tests use a local fake Pi process and do not send model requests. They cover authentication, first-message ordering, image transport, reconnection, command deduplication, and pairing validation. GitHub Actions runs Obsidian-specific lint checks, tests and the production build.
@@ -33,15 +33,21 @@ Tests use a local fake Pi process and do not send model requests. They cover aut
 npm run bridge -- --cwd "/path/to/vault" --host 127.0.0.1
 ```
 
-The bridge source runs through the development dependency `tsx` after `npm ci`. The small `bridge/cli.cjs` compatibility launcher keeps existing source-checkout service commands working; its application code is in `bridge/cli.ts`. The standalone release bundles that TypeScript entry into plain JavaScript and does not depend on `tsx` or TypeScript at runtime.
+The bridge source runs through the development dependency `tsx` after `npm ci`. The small `bridge/cli.cjs` compatibility launcher keeps existing source-checkout service commands working; its application code is in `bridge/cli.mts`. The standalone release bundles that TypeScript entry into plain JavaScript and does not depend on `tsx` or TypeScript at runtime.
 
 ## Type checking and protocol compatibility
 
-`npm run typecheck` uses strict TypeScript checking for the plugin, shared protocol, bridge, TypeScript tests, and UI preview. `npm run lint` covers the same source groups and disallows explicit `any`. Build/configuration scripts stay JavaScript, and `tests/fake-pi.cjs` remains a plain Node subprocess fixture so package tests verify a runtime with no TypeScript dependency.
+`npm run typecheck` uses strict TypeScript checking for the plugin, shared protocol, bridge, TypeScript tests, and UI preview, including `.mts` standalone tools. `npm run lint` covers the same source groups and disallows explicit `any`. Build/configuration scripts stay JavaScript, and `tests/fake-pi.cjs` remains a plain Node subprocess fixture so package tests verify a runtime with no TypeScript dependency.
 
 `shared/protocol.ts` defines protocol 1 commands, events, models, messages, and permission presets. The bridge keeps its runtime authentication, command allow-list, and image validation; static types do not validate incoming JSON. Compile-time tests in `tests/protocol.types.ts` reject invalid commands and fields. Integration tests exchange messages between the real client and bridge and retain legacy connection-test coverage.
 
 CI installs with `npm ci --no-audit --no-fund` so an unavailable npm advisory service does not block builds. Dependency audits can be run separately with `npm audit`.
+
+## Community review scope
+
+The directory's documented scanner exclusions include `.mts` ESM modules and the test/development file conventions listed in its [FAQ](https://docs.obsidian.md/community-directory/faq). The standalone computer bridge and browser preview use `.mts` because they are separate tools, not code running in the mobile plugin. They remain part of strict TypeScript checking and local lint. The production build also checks its dependency graph and rejects standalone tool code or external imports other than Obsidian.
+
+The plugin still uses vault enumeration for the note picker, clipboard APIs for explicit copy/paste actions, and device-local storage for pairing tokens. Those behavior disclosures describe required features. Direct local storage and the older settings renderer preserve Obsidian 1.7.2 compatibility; the recommended vault-local storage API starts at 1.8.7 and declarative settings at 1.13. The bridge archive is intentionally an extra release asset for the separate npx installer; Obsidian itself downloads only the plugin's three files.
 
 ## Standalone bridge distribution
 
@@ -49,7 +55,7 @@ CI installs with `npm ci --no-audit --no-fund` so an unavailable npm advisory se
 
 `npm run test:bridge-package` installs the archive with npm in offline mode and a fresh temporary cache, starts the installed CLI outside the repository with isolated credentials, and checks authentication and the Pi handshake using the fake Pi process. It does not contact a model or change the developer’s pairing data.
 
-CI uploads the package as the `pi-edge-bridge` artifact. The release workflow builds, verifies, and attaches the archive together with the plugin’s three files when a version tag matching `package.json` and `manifest.json` is pushed. The README uses the GitHub `releases/latest/download` archive, so bridge distribution needs no npm registry account. Version 0.2.2 is the first release containing the archive.
+CI uploads the package as the `pi-edge-bridge` artifact. The release workflow builds, verifies, and attaches the archive together with the plugin’s three files when a version tag matching `package.json` and `manifest.json` is pushed. All four assets receive signed GitHub build-provenance attestations, verifiable with `gh attestation verify <downloaded-file> --repo Anderbone/pi-obsidian-edge`. The README uses the GitHub `releases/latest/download` archive, so bridge distribution needs no npm registry account. Version 0.2.2 is the first release containing the archive.
 
 ## Source provenance
 

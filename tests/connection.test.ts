@@ -1,3 +1,4 @@
+import './browser-timers';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkConnection } from '../src/connection';
@@ -23,6 +24,15 @@ test('connection test waits for an authenticated protocol reply and sends no pro
   await pending;
   assert.equal(socket.closed, true);
   assert.equal(socket.onmessage, null);
+});
+test('malformed or foreign probe replies cannot report a successful connection', async () => {
+  const socket = new Socket(); let connected = false;
+  const pending = checkConnection(pairing, undefined, () => socket).then(() => { connected = true; });
+  for (const value of [null, 42, 'edge.pong', [], { type: 'edge.pong', protocol: 2 }]) socket.message(value);
+  await Promise.resolve();
+  assert.equal(connected, false);
+  socket.message({ type: 'edge.pong', protocol: 1 }); await pending;
+  assert.equal(connected, true);
 });
 
 test('pairing failures and unreachable bridges show actionable errors without leaking credentials', async () => {

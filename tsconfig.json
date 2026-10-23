@@ -9,6 +9,7 @@
       "DOM.Iterable"
     ],
     "strict": true,
+    "allowImportingTsExtensions": true,
     "noEmit": true,
     "skipLibCheck": true,
     "types": [
@@ -19,8 +20,8 @@
     "src/**/*.ts",
     "main.ts",
     "shared/**/*.ts",
-    "bridge/**/*.ts",
+    "bridge/**/*.mts",
     "tests/**/*.ts",
-    "dev/preview.ts"
+    "dev/preview.mts"
   ]
 }

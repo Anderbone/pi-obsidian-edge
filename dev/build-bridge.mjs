@@ -11,7 +11,7 @@ const staging = await mkdtemp(path.join(tmpdir(), 'pi-edge-bridge-'));
 try {
   await mkdir(output, { recursive: true });
   const metadata = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-  await build({ entryPoints: [path.join(root, 'bridge/cli.ts')], outfile: path.join(staging, 'cli.cjs'),
+  await build({ entryPoints: [path.join(root, 'bridge/cli.mts')], outfile: path.join(staging, 'cli.cjs'),
     bundle: true, platform: 'node', format: 'cjs', target: 'node22',
     external: ['bufferutil', 'utf-8-validate'], legalComments: 'inline' });
   await chmod(path.join(staging, 'cli.cjs'), 0o755);

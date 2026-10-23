@@ -5,7 +5,7 @@ import { parsePairing, validatePairing, type Pairing } from './src/pairing';
 import { ChatPanel, type Attachment } from './src/panel';
 import { checkConnection } from './src/connection';
 import { DEFAULT_HISTORY_LIMITS, historyLimits, positiveInteger, pruneHistory, type Conversation, type HistoryLimits } from './src/history';
-import { isPermissionId, type ClientEvent, type ModelEntry, type PermissionId, type PermissionMode } from './shared/protocol';
+import { isPermissionId, isRecord, type ClientEvent, type ModelEntry, type PermissionId, type PermissionMode } from './shared/protocol';
 
 import { noteCandidates, userMessage } from './src/references';
 
@@ -296,7 +296,8 @@ export default class EdgePlugin extends Plugin {
     await this.app.workspace.revealLeaf(leaf);
   }
   async onload(): Promise<void> {
-    this.settings = { ...DEFAULTS, ...await this.loadData() };
+    const saved: unknown = await this.loadData();
+    this.settings = { ...DEFAULTS, ...(isRecord(saved) ? saved : {}) };
     Object.assign(this.settings, historyLimits(this.settings));
     this.register(() => this.invalidateConnectionTest());
     this.lastFile = this.app.workspace.getActiveFile() || undefined;

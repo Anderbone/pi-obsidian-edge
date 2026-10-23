@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { NetworkInterfaceInfo } from 'node:os';
-import { resolveNetwork, lanAddress } from '../bridge/network';
+import { resolveNetwork, lanAddress } from '../bridge/network.mts';
 
 test('Tailscale is optional; explicit hosts and proxy URLs bypass discovery', () => {
   assert.deepEqual(resolveNetwork({}, () => undefined, () => undefined), { host: '127.0.0.1', port: 8771, url: 'ws://127.0.0.1:8771' });
