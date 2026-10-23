@@ -47,7 +47,9 @@ CI installs with `npm ci --no-audit --no-fund` so an unavailable npm advisory se
 
 The directory's documented scanner exclusions include `.mts` ESM modules and the test/development file conventions listed in its [FAQ](https://docs.obsidian.md/community-directory/faq). The standalone computer bridge and browser preview use `.mts` because they are separate tools, not code running in the mobile plugin. They remain part of strict TypeScript checking and local lint. The production build also checks its dependency graph and rejects standalone tool code or external imports other than Obsidian.
 
-The plugin still uses vault enumeration for the note picker, clipboard APIs for explicit copy/paste actions, and device-local storage for pairing tokens. Those behavior disclosures describe required features. Direct local storage and the older settings renderer preserve Obsidian 1.7.2 compatibility; the recommended vault-local storage API starts at 1.8.7 and declarative settings at 1.13. The bridge archive is intentionally an extra release asset for the separate npx installer; Obsidian itself downloads only the plugin's three files.
+The plugin uses vault enumeration for the note picker and clipboard APIs for explicit copy/paste actions. Those behavior disclosures describe required features. Settings use searchable definitions on Obsidian 1.13+, sharing the same row renderers with earlier versions and the in-panel settings modal. Pairing tokens use the official vault-scoped device-local storage API (Obsidian 1.8.7+), outside synced plugin data. A one-time legacy storage read migrates existing tokens, deleting the old key only after a successful write; that migration can still be disclosed as local-storage access by the scanner.
+
+The plugin release contains only `main.js`, `manifest.json`, and `styles.css`. The separate `bridge-<version>` release contains the npx archive and is marked as a prerelease so Obsidian and GitHub's latest-release link continue selecting the plugin release.
 
 ## Standalone bridge distribution
 
@@ -55,7 +57,7 @@ The plugin still uses vault enumeration for the note picker, clipboard APIs for 
 
 `npm run test:bridge-package` installs the archive with npm in offline mode and a fresh temporary cache, starts the installed CLI outside the repository with isolated credentials, and checks authentication and the Pi handshake using the fake Pi process. It does not contact a model or change the developer’s pairing data.
 
-CI uploads the package as the `pi-edge-bridge` artifact. The release workflow builds, verifies, and attaches the archive together with the plugin’s three files when a version tag matching `package.json` and `manifest.json` is pushed. All four assets receive signed GitHub build-provenance attestations, verifiable with `gh attestation verify <downloaded-file> --repo Anderbone/pi-obsidian-edge`. The README uses the GitHub `releases/latest/download` archive, so bridge distribution needs no npm registry account. Version 0.2.2 is the first release containing the archive.
+CI uploads the package as the `pi-edge-bridge` artifact. On a version tag matching `package.json` and `manifest.json`, the release workflow builds and verifies all assets, publishes the separate bridge release first, then publishes the plugin release. All four assets receive signed GitHub build-provenance attestations, verifiable with `gh attestation verify <downloaded-file> --repo Anderbone/pi-obsidian-edge`. The README points to the versioned `bridge-<version>` release archive, so bridge distribution needs no npm registry account. Earlier plugin releases retain their existing archives; already running bridges and saved pairing credentials are unaffected.
 
 ## Source provenance
 

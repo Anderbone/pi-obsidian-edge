@@ -16,8 +16,7 @@ export default [{
   rules: {
     ...rules,
     'obsidianmd/ui/sentence-case': ['warn', { brands: ['Pi', 'Pi Edge', 'Tailscale'], acronyms: ['MB'], ignoreRegex: ['^pi-edge:', '^ws://'] }],
-    // Retain compatibility with Obsidian 1.7.2; the declarative settings API needs 1.13.
-    'obsidianmd/settings-tab/prefer-setting-definitions': 'off',
+    'obsidianmd/settings-tab/prefer-setting-definitions': 'error',
     // Match the source-code safety checks reported by the directory review.
     '@typescript-eslint/no-unsafe-member-access': 'error',
     '@typescript-eslint/no-unsafe-assignment': 'error',

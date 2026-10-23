@@ -4,7 +4,7 @@
 
 ## Requirements
 
-- Obsidian 1.7.2 or newer on your phone or desktop.
+- Obsidian 1.8.7 or newer on your phone or desktop.
 - A network route from the phone or desktop client to the computer: the same LAN, a VPN, or a TLS reverse proxy.
 - Node.js 22 or newer on the computer.
 - A separately installed, authenticated Pi CLI. Tested with Pi 1.2.0.
@@ -15,7 +15,7 @@ The computer must remain awake and reachable. Its Obsidian app does not need to 
 ## Start the computer bridge
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/latest/download/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.6/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 The standalone package bundles its dependencies; Git and build tools are not needed. If you already downloaded `pi-edge-bridge.tgz`, use `npx --yes --package ./pi-edge-bridge.tgz pi-edge-bridge --cwd "/path/to/your/vault"`. Source builds remain available in the [development guide](development.md).
@@ -78,7 +78,7 @@ Choose **Read only**, **Read & write**, or **Full access** directly in the mobil
 The computer can impose an optional maximum using `--tools`. For example, this ceiling permits note edits but prevents the phone from enabling shell access:
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/latest/download/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.6/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
 ```
 
 Without an explicit `--tools` ceiling, all built-in tools are available and the phone can switch between all three permission presets. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled. Full Pi extension interactions are not supported.

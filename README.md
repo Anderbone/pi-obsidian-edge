@@ -5,7 +5,7 @@ Chat with **Pi on your computer from Obsidian on your phone or desktop**. Attach
 ## Requirements
 
 - **Computer:** Node.js 22+ and an installed, authenticated Pi CLI.
-- **Phone or desktop:** Obsidian 1.7.2+ with Pi Edge installed.
+- **Phone or desktop:** Obsidian 1.8.7+ with Pi Edge installed.
 - **Network:** both devices on the same Wi-Fi, or connected through a VPN such as **Tailscale**. Tailscale is optional; it is useful when away from home.
 
 ## Setup
@@ -13,7 +13,7 @@ Chat with **Pi on your computer from Obsidian on your phone or desktop**. Attach
 **1. On your computer**, run this with the path to your vault:
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/latest/download/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.6/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 The bridge finds a Tailscale or local network address and prints a pairing code. Keep this terminal running and the computer awake.

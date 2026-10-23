@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.6
+
+- Make plugin settings searchable through Obsidian 1.13+ declarative settings, with shared rendering for earlier versions and the chat settings modal.
+- Store pairing tokens through the official vault-scoped device-local storage API, migrating existing credentials without syncing them or requiring pairing again. Minimum Obsidian version is now 1.8.7.
+- Publish the computer bridge as a separate signed release so plugin releases contain only supported plugin files. Update the npx setup command to the versioned bridge archive.
+- Preserve note browsing, copy/paste, and their expected capability disclosures.
+
 ## 0.2.5
 
 - Fix the static-style assignment flagged by the community review and remove CSS important/duplicate-background warnings.
