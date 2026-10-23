@@ -5,6 +5,34 @@ import { runInNewContext } from 'node:vm';
 import type { App, PluginManifest, PluginSettingTab, Setting, SettingDefinition, SettingGroup } from 'obsidian';
 import type EdgePlugin from '../main';
 
+// Only the host's chainable setting controls are faked; both UI paths execute
+// the plugin's real row renderers and listener lifecycle.
+class ControlHost {
+  inputEl = { type: '', min: '', step: '', setAttribute: (_name: string, _value: string) => {} };
+  setValue(_value: string): this { return this; }
+  setPlaceholder(_value: string): this { return this; }
+  setButtonText(_value: string): this { return this; }
+  setDisabled(_value: boolean): this { return this; }
+  addOption(_key: string, _value: string): this { return this; }
+  onChange(_handler: (value: string) => void): this { return this; }
+  onClick(_handler: () => void): this { return this; }
+}
+class ContainerHost {
+  rows: SettingHost[] = [];
+  empty(): void { this.rows = []; }
+}
+class SettingHost {
+  name = '';
+  descEl = { createDiv: () => ({ dataset: {}, setText: (_value: string) => {} }) };
+  constructor(container: ContainerHost) { container.rows.push(this); }
+  setName(value: string): this { this.name = value; return this; }
+  setDesc(_value: string): this { return this; }
+  setHeading(): this { return this; }
+  addButton(render: (control: ControlHost) => void): this { render(new ControlHost()); return this; }
+  addText(render: (control: ControlHost) => void): this { render(new ControlHost()); return this; }
+  addDropdown(render: (control: ControlHost) => void): this { render(new ControlHost()); return this; }
+}
+
 // Load the real plugin against a small Obsidian host, without Electron or Pi.
 const code = buildSync({ entryPoints: ['main.ts'], bundle: true, platform: 'browser', format: 'cjs', external: ['obsidian'], write: false }).outputFiles[0].text;
 async function loadPlugin(modernSettings = true) {
@@ -26,6 +54,7 @@ async function loadPlugin(modernSettings = true) {
     async saveData(data: unknown): Promise<void> { saved = structuredClone(data); }
   }
   class SettingTabHost {
+    containerEl = new ContainerHost();
     constructor(public app: App, public plugin: PluginHost) {}
     update(): void { updates++; }
   }
@@ -34,7 +63,7 @@ async function loadPlugin(modernSettings = true) {
     module, exports: module.exports, TextEncoder,
     require: (name: string) => {
       assert.equal(name, 'obsidian');
-      return { requireApiVersion: () => modernSettings, Plugin: PluginHost, PluginSettingTab: SettingTabHost, ItemView: class {}, Modal: class {}, FuzzySuggestModal: class {}, MarkdownView: class {} };
+      return { Setting: SettingHost, requireApiVersion: () => modernSettings, Plugin: PluginHost, PluginSettingTab: SettingTabHost, ItemView: class {}, Modal: class {}, FuzzySuggestModal: class {}, MarkdownView: class {} };
     },
     window: { localStorage: { getItem: (key: string) => oldDevice.get(key) ?? null, removeItem: (key: string) => oldDevice.delete(key) } }
   });
@@ -110,4 +139,22 @@ test('model catalog changes refresh modern settings and leave hidden legacy tabs
   legacy.plugin.updateCatalog({ kind: 'effort.levels', levels: ['off', 'high'] });
   assert.equal(legacy.updates(), 0);
   assert.equal(legacy.plugin.connectionListeners.size, 0);
+});
+
+
+test('older Obsidian renders the shared settings and cleans up on refresh and close', async () => {
+  const { plugin, tab } = await loadPlugin(false);
+  tab.display();
+  const container = tab.containerEl as unknown as ContainerHost;
+  for (const name of ['Pair computer', 'Connection test', 'Default model', 'Permissions', 'Maximum conversations']) {
+    assert.ok(container.rows.some(row => row.name === name), name);
+  }
+  assert.equal(plugin.connectionListeners.size, 1);
+  plugin.updateCatalog({ kind: 'effort.levels', levels: ['off', 'high'] });
+  assert.ok(container.rows.some(row => row.name === 'Reasoning effort'));
+  assert.equal(plugin.connectionListeners.size, 1, 'refresh must dispose the previous connection row');
+  tab.hide();
+  assert.equal(plugin.connectionListeners.size, 0);
+  plugin.updateCatalog({ kind: 'effort.levels', levels: ['off'] });
+  assert.equal(plugin.connectionListeners.size, 0, 'hidden legacy settings must not mount new listeners');
 });
