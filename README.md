@@ -4,6 +4,21 @@ Chat with **Pi on your computer from Obsidian on your phone or desktop**. Attach
 
 Pi is an AI coding assistant that runs on your computer. Pi Edge lets you talk to it inside Obsidian. A small program called the **bridge** connects the two.
 
+## Prefer to let your agent set up the computer?
+
+Copy this into your computer’s coding agent:
+
+```text
+Set up Pi Edge using https://github.com/Anderbone/pi-obsidian-edge
+Read its README and user guide. Check that Node.js 22.19+ and Pi are installed
+and Pi is authenticated. Ask me which vault to use if it is unclear.
+Use the prebuilt bridge with npx; do not clone or compile the repository.
+Use Tailscale if connected, otherwise my private LAN. Verify the bridge,
+keep my existing pairing credentials, and show me the pairing code privately.
+Tell me how to restart it and where to install the phone plugin:
+https://community.obsidian.md/plugins/pi-edge
+```
+
 ## Before you start
 
 You need a computer to run Pi, plus Obsidian on the phone or desktop where you want to chat.
@@ -38,24 +53,6 @@ Open Obsidian’s **command palette** (from the sidebar on mobile, or `Ctrl+P` o
 You can also scan the terminal QR code to open pairing on supported devices. Pair each device separately and keep pairing codes private.
 
 If you cannot connect, open Pi Edge settings and choose **Test connection**. Green **Connected** means the bridge is reachable. Check that your computer is awake, the terminal is still running, and both devices are on the same Wi-Fi or connected through Tailscale. See the [connection help](docs/guide.md#connection-help) for more options.
-
-<details>
-<summary>Prefer to let your agent set up the computer?</summary>
-
-Copy this into your computer’s coding agent:
-
-```text
-Set up Pi Edge using https://github.com/Anderbone/pi-obsidian-edge
-Read its README and user guide. Check that Node.js 22.19+ and Pi are installed
-and Pi is authenticated. Ask me which vault to use if it is unclear.
-Use the prebuilt bridge with npx; do not clone or compile the repository.
-Use Tailscale if connected, otherwise my private LAN. Verify the bridge,
-keep my existing pairing credentials, and show me the pairing code privately.
-Tell me how to restart it and where to install the phone plugin:
-https://community.obsidian.md/plugins/pi-edge
-```
-
-</details>
 
 ## Screenshots
 
