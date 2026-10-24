@@ -5,9 +5,9 @@
 ## Requirements
 
 - Obsidian 1.8.7 or newer on your phone or desktop.
-- A network route from the phone or desktop client to the computer: the same LAN, a VPN, or a TLS reverse proxy.
-- Node.js 22 or newer on the computer.
-- A separately installed, authenticated Pi CLI. Tested with Pi 1.2.0.
+- A network route from the phone or desktop client to the computer: the same Wi-Fi/local network, a VPN such as [Tailscale](https://tailscale.com/docs/install), or a TLS reverse proxy. Tailscale is optional; to use it, install it on both devices and sign in to the same Tailscale account.
+- [Node.js](https://nodejs.org/en/download) 22.19 or newer on the computer; choose the LTS installer if you are new to Node.js.
+- A separately installed [Pi CLI](https://pi.dev/docs/latest/quickstart), connected to a model provider. Follow Pi’s quickstart and send a message in `pi` on the computer first. Tested with Pi 1.2.0.
 - Your model provider must support images to use image attachments.
 
 The computer must remain awake and reachable. Its Obsidian app does not need to stay open.
