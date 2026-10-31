@@ -1,5 +1,8 @@
+import { toolMessage } from './tools';
 import { panelHeight } from './viewport';
 import { userMessage } from './references';
+import { clipboardImageFiles, IMAGE_TYPES, imageSource, readClipboardImages } from './images';
+import type { ComposerDraft } from './sessions';
 import { isPermissionId, type AgentEvent, type ChatMessage, type ErrorPacket, type ModelEntry, type PermissionId, type PermissionMode } from '../shared/protocol';
 export type { ChatMessage } from '../shared/protocol';
 export interface Attachment { id: string; name: string; path?: string; text?: string; data?: string; mimeType?: string; }
@@ -10,12 +13,14 @@ export interface PanelActions {
   settings(): void;
   fresh(): void;
   history(): void;
+  active(): void;
   attach(kind: 'note' | 'selection' | 'browse'): Promise<Attachment | undefined>;
   model(id: string): void;
   effort(level: string): void;
   permissions(mode: PermissionId): void;
   icon?(element: HTMLElement, name: string): void;
   openNote?(path: string): void;
+  copyNotePath?(path: string): void;
   markdown(text: string, element: HTMLElement): void;
   changed(messages: ChatMessage[]): void;
 }
@@ -43,10 +48,18 @@ export class ChatPanel {
   private chips: HTMLElement;
   private activity: HTMLElement;
   private attachments: Attachment[] = [];
-  private rows = new Map<string, { row: HTMLElement; body: HTMLElement; text: string; final: boolean }>();
+  private imageQueue: Promise<void> = Promise.resolve();
+  private imageImports = 0;
+  private imageDialog?: HTMLDialogElement;
+  private rows = new Map<string, { row: HTMLElement; body: HTMLElement; text: string; final: boolean; images?: ChatMessage['images'] }>();
   private messages: ChatMessage[] = [];
   private disposed = false;
   private busy = false;
+  private activeButton: HTMLButtonElement;
+  private activeCount: HTMLElement;
+  private conversationLabel: HTMLButtonElement;
+  private conversationNotePath?: string;
+  private chatState: HTMLElement;
   private state: string = 'disconnected';
   constructor(private root: HTMLElement, private actions: PanelActions, paired: boolean) {
     root.replaceChildren(); root.classList.add('edge-panel');
@@ -54,8 +67,19 @@ export class ChatPanel {
     const heading = node('div', 'edge-heading');
     heading.append(node('span', 'edge-mark', 'π'), node('h2', '', 'Pi Edge'));
     const controls = node('div', 'edge-header-actions');
-    controls.append(this.iconButton('+', 'New conversation', () => actions.fresh(), 'plus'), this.iconButton('History', 'Conversation history', () => actions.history(), 'history'), this.iconButton('Settings', 'Open settings', () => actions.settings(), 'settings'));
+    this.activeButton = this.iconButton('Active', 'Active chats', () => actions.active(), 'panels-top-left', 'edge-active-button');
+    this.activeCount = node('span', 'edge-active-count', '0');
+    this.activeButton.append(node('span', 'edge-active-label', 'Active'), this.activeCount);
+    controls.append(this.iconButton('+', 'New conversation', () => actions.fresh(), 'plus'), this.activeButton, this.iconButton('History', 'Conversation history', () => actions.history(), 'history'), this.iconButton('Settings', 'Open settings', () => actions.settings(), 'settings'));
     header.append(heading, controls);
+    const conversation = node('div', 'edge-conversation');
+    this.conversationLabel = node('button', 'edge-conversation-title', 'New conversation');
+    this.conversationLabel.type = 'button';
+    this.conversationLabel.addEventListener('click', () => {
+      if (this.conversationNotePath) this.actions.copyNotePath?.(this.conversationNotePath);
+    });
+    this.chatState = node('span', 'edge-chat-state', 'Offline');
+    conversation.append(this.conversationLabel, this.chatState);
     const connection = node('div', 'edge-connection');
     this.status = node('span', 'edge-status', paired ? 'Connecting…' : 'Computer not paired'); this.status.setAttribute('role', 'status');
     this.model = node('select', 'edge-model'); this.model.setAttribute('aria-label', 'Model');
@@ -84,13 +108,23 @@ export class ChatPanel {
     this.input.addEventListener('input', () => { this.input.style.removeProperty('--edge-input-height'); this.input.style.setProperty('--edge-input-height', Math.min(140, this.input.scrollHeight) + 'px'); });
     this.input.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); this.submit(); } });
     this.input.addEventListener('paste', event => {
-      const files = [...(event.clipboardData?.files || [])].filter(file => file.type.startsWith('image/'));
-      if (files.length) { event.preventDefault(); void this.addImages(files); }
-    });
+      const files = clipboardImageFiles(event.clipboardData);
+      if (files.length) {
+        event.preventDefault(); event.stopPropagation(); void this.addImages(files);
+      } else if (!event.clipboardData?.types.length || event.clipboardData.types.some(type => type.startsWith('image/'))) {
+        // Native mobile paste can announce an image but omit its file payload.
+        event.preventDefault(); event.stopPropagation(); void this.pasteImage();
+      }
+    }, { capture: true });
+    this.input.addEventListener('beforeinput', event => {
+      if (event.inputType !== 'insertFromPaste') return;
+      const files = clipboardImageFiles(event.dataTransfer);
+      if (files.length) { event.preventDefault(); event.stopPropagation(); void this.addImages(files); }
+    }, { capture: true });
     composer.addEventListener('dragover', event => event.preventDefault());
     composer.addEventListener('drop', event => {
-      const files = [...(event.dataTransfer?.files || [])].filter(file => file.type.startsWith('image/'));
-      if (files.length) { event.preventDefault(); void this.addImages(files); }
+      const files = clipboardImageFiles(event.dataTransfer);
+      if (files.length) { event.preventDefault(); event.stopPropagation(); void this.addImages(files); }
     });
     const toolbar = node('div', 'edge-toolbar');
     const references = node('div', 'edge-reference-actions');
@@ -100,6 +134,7 @@ export class ChatPanel {
     const upload = node('input'); upload.type = 'file'; upload.accept = 'image/png,image/jpeg,image/webp,image/gif'; upload.multiple = true; upload.hidden = true;
     upload.addEventListener('change', () => { void this.addImages([...(upload.files || [])]); upload.value = ''; });
     references.append(this.iconButton('Image', 'Attach images', () => upload.click(), 'image'));
+    if (typeof navigator.clipboard?.read === 'function') references.append(this.iconButton('Paste', 'Paste image from clipboard', () => { void this.pasteImage(); }, 'clipboard-paste'));
     this.permissions = node('select', 'edge-permissions'); this.permissions.setAttribute('aria-label', 'Permissions'); this.permissions.title = 'Tool permissions';
     this.setPermissions('full', [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }]);
     this.permissions.addEventListener('change', () => { const selected = this.permissions.value; this.permissions.value = this.currentPermissions; if (isPermissionId(selected)) actions.permissions(selected); });
@@ -110,11 +145,29 @@ export class ChatPanel {
     primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.permissions, primary);
     composer.append(this.chips, this.input, upload, toolbar);
     composer.addEventListener('submit', event => { event.preventDefault(); this.submit(); });
-    root.append(header, connection, this.transcript, this.activity, composer);
+    root.append(header, conversation, connection, this.transcript, this.activity, composer);
     this.trackViewport();
   }
   private iconButton(label: string, title: string, action: () => void, icon: string, cls = ''): HTMLButtonElement {
     const element = button(label, title, action, `edge-icon-button ${cls}`); this.actions.icon?.(element, icon); return element;
+  }
+  setToolDetails(show: boolean): void { this.root.classList.toggle('edge-show-tools', show); }
+  setActiveCount(total: number, running: number): void {
+    this.activeCount.textContent = String(total);
+    this.activeButton.dataset.running = String(running > 0);
+    this.activeButton.title = `${total} active chats · ${running} running`;
+    this.activeButton.setAttribute('aria-label', `Active chats: ${total}, running: ${running}`);
+  }
+  setConversation(title: string, notePath?: string): void {
+    this.conversationLabel.textContent = notePath ? `${notePath.split('/').pop()} · ${title}` : title;
+    this.conversationNotePath = notePath;
+    this.conversationLabel.disabled = !notePath;
+    this.conversationLabel.title = notePath ? `${notePath} · 点击复制仓库内路径` : title;
+    this.conversationLabel.setAttribute('aria-label', notePath ? `复制文档路径（从仓库根目录）：${notePath}` : title);
+  }
+  getDraft(): ComposerDraft { return { text: this.input.value, attachments: [...this.attachments] }; }
+  restoreDraft(draft: ComposerDraft): void {
+    this.input.value = draft.text; this.attachments = [...draft.attachments]; this.renderAttachments();
   }
   setPermissions(mode: PermissionId, modes: PermissionMode[]): void {
     this.currentPermissions = mode; this.permissions.replaceChildren(...modes.map(item => new Option(item.label, item.id))); this.permissions.value = mode;
@@ -148,8 +201,9 @@ export class ChatPanel {
     schedule();
   }
   private submit(): void {
+    if (this.imageImports) { this.error('Wait for the images to finish attaching.', this.busy); return; }
     const text = this.input.value.trim();
-    if (this.busy || (!text && !this.attachments.length)) return;
+    if (!text && !this.attachments.length) return;
     if (this.state === 'disconnected') { this.actions.pair(); return; }
     try {
       this.actions.send(text || 'Please look at the attached context.', [...this.attachments]);
@@ -159,14 +213,20 @@ export class ChatPanel {
   }
   statusChanged(state: string, detail: string): void {
     this.state = state; this.status.textContent = detail; this.status.title = detail; this.status.dataset.state = state;
+    this.renderChatState();
     if (state === 'error') this.setBusy(false);
+  }
+  private renderChatState(): void {
+    this.chatState.textContent = this.state === 'ready' ? this.busy ? 'Running' : 'Idle' : this.state === 'connecting' || this.state === 'reconnecting' ? 'Connecting…' : 'Offline';
+    this.chatState.dataset.running = String(this.state === 'ready' && this.busy);
   }
   setBusy(value: boolean): void {
     delete this.activity.dataset.error;
     this.busy = value; this.typing.hidden = !value; this.permissions.disabled = value;
+    this.renderChatState();
     this.activity.hidden = true;
     if (value) { this.empty.hidden = true; this.typingText.textContent = 'Thinking…'; this.transcript.scrollTop = this.transcript.scrollHeight; }
-    this.sendButton.disabled = value; this.stopButton.hidden = !value;
+    this.sendButton.disabled = this.imageImports > 0; this.stopButton.hidden = !value;
     if (!value) this.activity.textContent = '';
   }
   setModels(models: ModelEntry[], current = ''): void {
@@ -198,12 +258,17 @@ export class ChatPanel {
   handle(event: AgentEvent | ErrorPacket): void {
     if (event.kind === 'message' && (event.role === 'user' || event.role === 'assistant')) {
       if (event.role === 'assistant' && !event.final) this.typingText.textContent = 'Responding…';
-      if (event.text) this.upsert({ id: event.id, role: event.role, text: event.text, final: !!event.final });
+      if (event.text || event.images?.length) this.upsert({ id: event.id, role: event.role, text: event.text, final: !!event.final, images: event.images });
     } else if (event.kind === 'history') {
       this.restore(event.messages); this.actions.changed([...this.messages]);
     } else if (event.kind === 'run.started') this.setBusy(true);
     else if (event.kind === 'run.finished') this.setBusy(false);
-    else if (event.kind === 'tool') this.typingText.textContent = `${event.name} · ${event.phase}`;
+    else if (event.kind === 'tool') {
+      this.typingText.textContent = `${event.name || 'Tool'} · ${event.phase}`;
+      const message = toolMessage(event);
+      const previous = this.messages.find(item => item.id === message.id);
+      this.upsert({ ...message, tool: { ...previous?.tool, ...message.tool } });
+    }
     else if (event.kind === 'state') { this.setCurrentModel(event.model); if (event.reasoning === false) this.effort.hidden = true; this.setEffort(event.effort); this.setBusy(event.busy); }
     else if (event.kind === 'model') this.setCurrentModel(event.model);
     else if (event.kind === 'effort.levels') this.setEffortLevels(event.levels);
@@ -217,19 +282,44 @@ export class ChatPanel {
     const atBottom = this.transcript.scrollHeight - this.transcript.scrollTop - this.transcript.clientHeight < 100;
     let row = this.rows.get(message.id);
     if (!row) {
-      const element = node('article', `edge-message edge-${message.role}`);
-      element.append(node('div', 'edge-message-label', message.role === 'user' ? 'You' : 'Pi'));
+      const element = node('article', `edge-message edge-${message.role}${message.tool ? ' edge-tool-message' : ''}`);
+      element.append(node('div', 'edge-message-label', message.tool ? 'Tool' : message.role === 'user' ? 'You' : 'Pi'));
       const body = node('div', 'edge-message-body'); element.append(body);
       element.append(this.iconButton('Copy', message.role === 'user' ? 'Copy message' : 'Copy response', () => { const text = this.rows.get(message.id)?.text || ''; void navigator.clipboard.writeText(message.role === 'user' ? userMessage(text).text : text).catch(() => this.error('Could not copy. Select the text to copy it.')); }, 'copy', 'edge-copy'));
       this.transcript.insertBefore(element, this.typing); row = { row: element, body, text: '', final: false }; this.rows.set(message.id, row);
     }
-    if (row.text !== message.text || row.final !== message.final) {
+    if (message.tool || row.text !== message.text || row.final !== message.final || row.images !== message.images) {
       row.text = message.text; row.final = message.final; row.row.classList.toggle('is-streaming', !message.final);
+      row.images = message.images;
       row.body.replaceChildren();
+      const label = row.row.querySelector('.edge-message-label');
+      if (label && message.role === 'user') label.textContent = message.delivery === 'queued' ? 'You · Queued for next turn' : message.delivery === 'sending' ? 'You · Sending…' : message.delivery === 'failed' ? 'You · Not sent' : 'You';
       const content = userMessage(message.text);
       const display = message.role === 'user' ? content.text : message.text;
-      if (message.final && message.role === 'assistant') this.actions.markdown(display, row.body);
+      if (message.tool) {
+        const details = node('details', 'edge-tool-details');
+        details.append(node('summary', '', `${message.tool.name} · ${message.tool.phase}`));
+        for (const [label, value] of [['Input', message.tool.input], ['Result', message.tool.output]]) {
+          if (value) { details.append(node('div', 'edge-tool-label', label), node('pre', 'edge-tool-content', value)); }
+        }
+        if (!message.tool.input && !message.tool.output) details.append(node('p', '', message.tool.phase === 'running' ? 'Waiting for tool details. Older bridges do not send inputs or results.' : 'No inputs or results were received for this call. Update and restart the computer bridge to enable detailed records.'));
+        row.body.append(details);
+      }
+      else if (message.final && message.role === 'assistant') this.actions.markdown(display, row.body);
       else row.body.textContent = display;
+      if (message.images?.length) {
+        const images = node('div', 'edge-message-images');
+        for (const [index, image] of message.images.entries()) {
+          const source = imageSource(image);
+          if (!source) continue;
+          const label = `Attached image ${index + 1}`;
+          const preview = button('', `Open ${label.toLowerCase()}`, () => this.openImage(source, label), 'edge-message-image');
+          const img = node('img'); img.src = source; img.alt = label; img.loading = 'lazy';
+          img.addEventListener('load', () => { if (atBottom) this.transcript.scrollTop = this.transcript.scrollHeight; }, { once: true });
+          preview.append(img); images.append(preview);
+        }
+        row.body.append(images);
+      }
       if (message.role === 'user' && content.references.length) {
         const links = node('div', 'edge-message-references');
         for (const reference of content.references) {
@@ -251,7 +341,7 @@ export class ChatPanel {
     for (const message of messages) this.upsert(message, false);
     this.transcript.scrollTop = this.transcript.scrollHeight;
   }
-  error(message: string): void { this.setBusy(false); this.activity.hidden = false; this.activity.textContent = message; this.activity.dataset.error = 'true'; }
+  error(message: string, busy = false): void { this.setBusy(busy); this.activity.hidden = false; this.activity.textContent = message; this.activity.dataset.error = 'true'; }
   addAttachment(attachment: Attachment): void {
     if (this.disposed) return;
     if (this.attachments.length >= 6) return this.error('Attach up to six items per message.');
@@ -259,11 +349,42 @@ export class ChatPanel {
   }
   private renderAttachments(): void {
     this.chips.replaceChildren();
-    for (const item of this.attachments) this.chips.append(button(`${item.data ? '▧' : '↗'} ${item.name} ×`, `Remove ${item.name}`, () => { this.attachments = this.attachments.filter(other => other.id !== item.id); this.renderAttachments(); }, 'edge-attachment'));
+    for (const item of this.attachments) {
+      const chip = button(`${item.data ? '' : '↗ '}${item.name} ×`, `Remove ${item.name}`, () => { this.attachments = this.attachments.filter(other => other.id !== item.id); this.renderAttachments(); }, 'edge-attachment');
+      const source = item.data && item.mimeType ? imageSource({ data: item.data, mimeType: item.mimeType }) : undefined;
+      if (source) { const img = node('img', 'edge-attachment-preview'); img.src = source; img.alt = ''; chip.prepend(img); }
+      this.chips.append(chip);
+    }
   }
-  private async addImages(files: File[]): Promise<void> {
+  private openImage(source: string, label: string): void {
+    this.imageDialog?.close();
+    const dialog = node('dialog', 'edge-image-dialog');
+    dialog.setAttribute('aria-label', label);
+    const img = node('img'); img.src = source; img.alt = label;
+    dialog.append(button('Close', 'Close image', () => dialog.close()), img);
+    dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+    dialog.addEventListener('close', () => { dialog.remove(); if (this.imageDialog === dialog) this.imageDialog = undefined; }, { once: true });
+    this.root.append(dialog); this.imageDialog = dialog; dialog.showModal();
+  }
+  private pasteImage(): Promise<void> {
+    // Invoke the clipboard API during the user's gesture, before awaiting work.
+    return this.addImages(readClipboardImages());
+  }
+  private addImages(files: File[] | Promise<File[]>): Promise<void> {
+    this.imageImports++; this.sendButton.disabled = true;
+    const ready = Promise.resolve(files);
+    // Clipboard access may reject while an earlier import is still reading.
+    void ready.catch(() => {});
+    this.imageQueue = this.imageQueue.then(async () => { await this.importImages(await ready); }).catch((error: unknown) => {
+      this.error(error instanceof Error ? error.message : 'Could not read the clipboard image. Use the image picker.', this.busy);
+    }).finally(() => { this.imageImports--; if (!this.disposed) this.sendButton.disabled = this.imageImports > 0; });
+    return this.imageQueue;
+  }
+  private async importImages(files: File[]): Promise<void> {
     for (const file of files) {
-      if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) { this.error('Choose a PNG, JPEG, WebP or GIF image.'); continue; }
+      if (this.disposed) return;
+      if (!IMAGE_TYPES.includes(file.type)) { this.error('Choose a PNG, JPEG, WebP or GIF image.', this.busy); continue; }
+      if (this.attachments.length >= 6) { this.error('Attach up to six items per message.', this.busy); break; }
       const imageBytes = this.attachments.reduce((total, item) => total + (item.data?.length || 0) * 0.75, 0);
       if (file.size > 4_000_000 || file.size + imageBytes > 4_000_000) { this.error('Keep images below 4 MB in total per message.'); continue; }
       try {
@@ -272,5 +393,5 @@ export class ChatPanel {
       } catch (error) { this.error((error as Error).message); }
     }
   }
-  dispose(): void { this.disposed = true; this.viewportCleanup?.(); }
+  dispose(): void { this.disposed = true; this.imageDialog?.close(); this.viewportCleanup?.(); }
 }

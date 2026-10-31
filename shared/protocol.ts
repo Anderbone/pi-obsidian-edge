@@ -4,7 +4,8 @@ export interface PermissionMode { id: PermissionId; label: string; }
 export function isPermissionId(value: unknown): value is PermissionId {
   return value === 'read' || value === 'edit' || value === 'full';
 }
-export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; final: boolean; }
+export interface ToolDetails { name: string; phase: 'running' | 'completed' | 'failed'; input?: string; output?: string; }
+export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; final: boolean; images?: ImageInput[]; tool?: ToolDetails; requestId?: string; delivery?: 'sending' | 'queued' | 'failed'; }
 export interface ModelEntry { id: string; name: string; provider?: string; modelId?: string; }
 export interface ImageInput { data: string; mimeType: string; type?: 'image'; }
 export interface AgentInfo {
@@ -15,9 +16,11 @@ export interface AgentInfo {
 export type AgentEvent = (
   | ({ kind: 'message' } & ChatMessage)
   | { kind: 'history'; messages: ChatMessage[] }
+  | { kind: 'prompt.status'; requestId: string; disposition: 'started' | 'queued' | 'handled' | 'failed'; error?: string }
+  | { kind: 'queue.cleared'; messages: string[] }
   | { kind: 'run.started' }
   | { kind: 'run.finished' }
-  | { kind: 'tool'; id?: string; name?: string; phase: 'running' | 'completed' | 'failed' }
+  | { kind: 'tool'; id?: string; name?: string; phase: 'running' | 'completed' | 'failed'; input?: string; output?: string }
   | { kind: 'state'; busy: boolean; reasoning: boolean; effort: string; model: string }
   | { kind: 'model'; model: string }
   | { kind: 'effort.levels'; levels: string[] }
@@ -31,6 +34,7 @@ export interface ReadyPacket {
   type: 'edge.ready'; kind?: never; protocol: 1; sessionId: string; agent: string;
   agents: AgentInfo[]; tools: string; permissions: PermissionId;
   permissionModes: PermissionMode[]; cwdLabel: string;
+  sessionControl?: boolean; steering?: boolean;
 }
 export interface ErrorPacket { type: 'edge.error'; kind?: never; message: string; }
 export interface EventPacket { type: 'edge.event'; sessionId: string; seq: number; event: AgentEvent; }
@@ -39,8 +43,9 @@ export type ServerPacket = ReadyPacket | ErrorPacket | EventPacket | PongPacket;
 export type ClientEvent = ReadyPacket | ErrorPacket | AgentEvent;
 
 export interface CommandFields {
-  prompt: { message: string; images?: ImageInput[] };
+  prompt: { message: string; images?: ImageInput[]; streamingBehavior?: 'steer' | 'followUp' };
   abort: undefined;
+  clear_queue: undefined;
   get_state: undefined;
   get_messages: undefined;
   get_session_stats: undefined;
@@ -50,6 +55,7 @@ export interface CommandFields {
   set_thinking_level: { level: string };
   new_session: undefined;
   'edge.permissions': { mode: PermissionId };
+  'edge.session.close': undefined;
 }
 export type CommandType = keyof CommandFields;
 export type ClientCommand = {
@@ -59,7 +65,7 @@ export interface HelloPacket { type: 'edge.hello'; protocol: 1; clientId: string
 export interface PingPacket { type: 'edge.ping'; protocol: 1; }
 export type ClientPacket = ClientCommand | HelloPacket | PingPacket;
 
-export const RPC_COMMANDS = ['prompt', 'abort', 'get_state', 'get_messages', 'get_session_stats',
+export const RPC_COMMANDS = ['prompt', 'abort', 'clear_queue', 'get_state', 'get_messages', 'get_session_stats',
   'get_available_models', 'get_available_thinking_levels', 'set_model', 'set_thinking_level', 'new_session'] as const satisfies readonly CommandType[];
 export type RpcCommandType = typeof RPC_COMMANDS[number];
 // Commands from untrusted clients retain the existing allow-list validation;

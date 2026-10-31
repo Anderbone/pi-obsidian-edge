@@ -15,7 +15,7 @@ The computer must remain awake and reachable. Its Obsidian app does not need to 
 ## Start the computer bridge
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.7/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.8/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 The standalone package bundles its dependencies; Git and build tools are not needed. If you already downloaded `pi-edge-bridge.tgz`, use `npx --yes --package ./pi-edge-bridge.tgz pi-edge-bridge --cwd "/path/to/your/vault"`. Source builds remain available in the [development guide](development.md).
@@ -69,21 +69,33 @@ In Pi Edge settings, click **Test connection**. Green **Connected** confirms tha
 
 **Note** attaches the last active note. **Selection** attaches text selected in that note's editor. **Browse** lets you pick another Markdown note. Each text attachment is limited to 80,000 characters; the combined prompt is limited to 150,000 characters. Oversized content is rejected rather than truncated.
 
-**Image** opens the device image picker. Pasting and dropping images are supported where the device provides these APIs. PNG, JPEG, WebP, and GIF are accepted. Up to six attachments are allowed, with images limited to 4,000,000 bytes total per prompt. Images are sent at their original quality and are not saved as vault attachments by the plugin.
+**Image** opens the device image picker. You can also paste an image into the message box or drop it there. Where clipboard image access is available, **Paste image from clipboard** provides another way to attach a copied image; allow clipboard access if prompted. PNG, JPEG, WebP, and GIF are accepted. Up to six attachments are allowed, with images limited to 4,000,000 bytes total per prompt. Wait for the thumbnail to appear before sending.
+
+Sent images appear as thumbnails in your message. Tap one to view it larger. Images are sent at their original quality and saved with conversation history in plugin data, so they remain visible when you reopen a chat and count toward its history size limit. They may sync with plugin data; they are not created as separate vault attachment files. Images missing from older local history can be recovered when the updated computer bridge loads them from the original Pi session, if that session is still available.
+
+Open the top-right gear and enable **Show tool call details** to display each tool call and its running/completed/failed status. Leave it unchecked for compact chat. Expand a call to inspect inputs and text results (up to 6,000 characters each); older bridges provide names and status only until updated and restarted. This preference applies to saved and background chats too. Tool records are stored with local conversation history and may sync with plugin data.
+
+Each new request asks Pi to complete and verify requested edits, then finish with the actual changed file paths and a short description, or explicitly state that no files changed. This is an instruction to the model, not independent filesystem verification; failed or unfinished work must be identified in the reply.
 
 Settings include the bridge connection, a default-model dropdown populated from the computer Pi registry, reasoning effort when supported, permission presets, local history, and connection diagnostics. Pi providers configured on the computer are shown as model groups. Separately installed agent CLIs such as Codex or OpenCode are not automatically imported into Pi’s model registry. The panel shows the current reasoning effort and supported levels only for models with a non-off reasoning level. The composer adapts to Obsidian keyboard-height changes and viewport resizing so typing remains visible. The token is saved in device-local WebView storage, outside synced plugin `data.json`; pair each device separately. This is local storage, not a secure hardware credential vault.
+
+While Pi is running, keep typing and click the same **Send** button to send an instruction that changes the current task. Pi reads it after the current assistant turn finishes its tool calls, before the next model call. The instruction appears immediately, is marked **Queued for next turn** after Pi accepts it, and becomes a normal message when Pi consumes it. Notes and images work here too. This requires the updated computer bridge; an older bridge shows an update/restart message and leaves the composer intact.
+
+**Stop** clears queued adjustments before aborting the task. Unsent or cleared instructions stay in the conversation as **Not sent** so their text can be copied and retried. Pi remains **Running** until its session-level `agent_settled` event, including any automatic continuation.
 
 Choose **Read only**, **Read & write**, or **Full access** directly in the mobile composer or settings. The default is **Full access**, including read, write, edit, search and shell tools. Permission changes reopen the same saved Pi session; stop a running agent before changing them.
 
 The computer can impose an optional maximum using `--tools`. For example, this ceiling permits note edits but prevents the phone from enabling shell access:
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.7/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.8/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
 ```
 
 Without an explicit `--tools` ceiling, all built-in tools are available and the phone can switch between all three permission presets. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled. Full Pi extension interactions are not supported.
 
 ## Note links in conversations
+
+Tap the document title above a chat to copy its path from the Obsidian vault root directly, such as `/plannow/note.md`. The copied path starts with `/` and excludes the device storage directory.
 
 Attached Markdown notes appear as clickable links in your messages and in the history picker. Old conversations with embedded note sources also show links. Copying your own message copies the text you entered, excluding the hidden note context sent to Pi.
 
@@ -91,13 +103,19 @@ Links first use the original vault path. If the file has moved, Pi Edge looks fo
 
 ## Sessions and reconnecting
 
+Use **＋** to start another independent chat. For example, attach note A and start a task, open note B, swipe back to Pi Edge, choose **＋**, and attach note B. Both tasks run with separate Pi contexts. Switching the open note alone leaves the selected chat unchanged.
+
+The **Active chats** button beside History shows the number of live chats and highlights while any task is running. Open it to see each chat's source note and status, switch chats, stop a task, or end an idle chat. Ending a chat preserves its saved history. The bridge supports up to **eight active chats** in total, including other connected devices; end an idle chat before opening another. Each chat keeps its model, reasoning effort and permissions. Draft text and unsent attachments survive chat switches in memory; they are not saved across a plugin/app restart. Contexts are separate, while all agents work in the same computer vault.
+
+Closing the panel leaves active chats connected and continues saving background replies. Active chat IDs are stored only on this device, and reopening the panel reconnects them after a plugin reload. History lists saved conversations; opening an archived conversation makes it active again.
+
 The bridge fixes the working directory and any explicit tool ceiling on the computer. Clients select a permission preset within that ceiling; they cannot override arbitrary launch arguments or the working directory. Each conversation has an application-owned UUID. The Pi adapter uses that UUID for a saved Pi session.
 
-A dropped socket retains the running process for two minutes. A reconnect uses the same process and replays bounded, normalized events. After the retention window, the next connection starts Pi with the same saved session ID. Pi history is reloaded into the panel. A computer or bridge restart can interrupt active work; inspect results before repeating an action.
+A dropped socket leaves running work alive. Once work finishes, an idle disconnected process is retained for two minutes. A reconnect uses the same process and replays bounded, normalized events. After the retention window, the next connection starts Pi with the same saved session ID. Pi history is reloaded into the panel. These retention changes and immediate **End chat** cleanup require the updated bridge; older bridges still support concurrent connected chats, but expire disconnected processes after two minutes and release ended chats after that timeout. Restart a source bridge after updating when its current tasks have finished. A computer or bridge restart can interrupt active work; inspect results before repeating an action.
 
 Messages queued before readiness are sent once the bridge is ready. Already-sent prompts are not blindly replayed after a disconnect. The bridge deduplicates command IDs while a session process remains alive; it does not promise durable exactly-once execution across a server restart.
 
-Local history defaults to **500 conversations** and **50 MB** (50,000,000 bytes). Set **Maximum conversations** and **Maximum history size** in Pi Edge settings, then click **Apply** for each change. Both accept positive whole numbers; you can increase either limit. There is no fixed per-conversation message cap. When a limit is reached, the oldest inactive conversations are removed first. If the active conversation alone exceeds the size limit, its oldest messages are removed from the local copy. Lowering a limit applies this cleanup immediately. Pi's own sessions remain separate on the computer. Images are absent from the plugin's local history, but may be present in Pi's session files.
+Local history defaults to **500 conversations** and **50 MB** (50,000,000 bytes). Set **Maximum conversations** and **Maximum history size** in Pi Edge settings, then click **Apply** for each change. Both accept positive whole numbers; you can increase either limit. There is no fixed per-conversation message cap. When a limit is reached, the oldest archived conversations are removed first. Live chats and their complete messages stay protected, so they may temporarily exceed these limits until ended. **Clear history** removes archived chats and keeps live chats. Pi's own sessions remain separate on the computer. Images count toward local history limits and may also be present in Pi's session files.
 
 ## Privacy
 

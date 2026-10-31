@@ -1,6 +1,9 @@
-import type { ChatMessage } from '../shared/protocol';
+import type { ChatMessage, PermissionId } from '../shared/protocol';
 
-export interface Conversation { id: string; title: string; messages: ChatMessage[]; updated: number; }
+export interface Conversation {
+  id: string; title: string; messages: ChatMessage[]; updated: number;
+  notePath?: string; model?: string; effort?: string; permissions?: PermissionId; bridgeSessionId?: string;
+}
 export interface HistoryLimits { historyMaxConversations: number; historyMaxMB: number; }
 export const DEFAULT_HISTORY_LIMITS: HistoryLimits = { historyMaxConversations: 500, historyMaxMB: 50 };
 
@@ -17,11 +20,16 @@ export function historyLimits(value: Partial<HistoryLimits>): HistoryLimits {
   };
 }
 
-export function pruneHistory(conversations: Conversation[], active: string, limits: HistoryLimits): Conversation[] {
+export function pruneHistory(conversations: Conversation[], active: string, limits: HistoryLimits, liveIds: ReadonlySet<string> = new Set()): Conversation[] {
+  // Live contexts stay intact even when the local archive limit is smaller.
+  const live = conversations.filter(conversation => liveIds.has(conversation.id));
+  if (live.length) return [...live, ...pruneHistory(conversations.filter(conversation => !liveIds.has(conversation.id)), active,
+    { historyMaxMB: Math.max(0, limits.historyMaxMB - new TextEncoder().encode(JSON.stringify(live)).byteLength / 1_000_000),
+      historyMaxConversations: Math.max(0, limits.historyMaxConversations - live.length) })].sort((a, b) => b.updated - a.updated);
   const sorted = [...conversations].sort((a, b) => b.updated - a.updated);
   const kept = sorted.slice(0, limits.historyMaxConversations);
   const current = sorted.find(conversation => conversation.id === active);
-  if (current && !kept.includes(current)) kept[kept.length - 1] = current;
+  if (current && !kept.includes(current)) kept[Math.max(0, kept.length - 1)] = current;
   const encoder = new TextEncoder();
   const bytes = (value: unknown) => encoder.encode(JSON.stringify(value)).byteLength;
   const sizes = new Map(kept.map(conversation => [conversation, bytes(conversation)]));

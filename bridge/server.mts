@@ -38,11 +38,17 @@ export function createBridge(options: BridgeOptions) {
   };
   function removeSession(session: Session): void {
     clearTimeout(session.expiry);
-    sessions.delete(session.clientId);
+    if (sessions.get(session.clientId) === session) sessions.delete(session.clientId);
     session.child.stdin?.end();
     session.child.kill();
     const kill = setTimeout(() => { if (session.child.exitCode === null) session.child.kill('SIGKILL'); }, 2000);
     kill.unref();
+  }
+  function expireWhenIdle(session: Session): void {
+    clearTimeout(session.expiry);
+    if (session.socket || session.busy) return;
+    session.expiry = setTimeout(() => removeSession(session), graceMs);
+    session.expiry.unref();
   }
   function attach(session: Session, ws: BridgeSocket): void {
     clearTimeout(session.expiry);
@@ -51,7 +57,7 @@ export function createBridge(options: BridgeOptions) {
     ws.session = session;
     const announce = () => {
       if (session.socket !== ws || ws.readyState !== 1) return;
-      send(ws, { type: 'edge.ready', protocol: 1, sessionId: session.id, agent: session.adapter.id, agents: listAgents(), tools: session.tools, permissions: session.permissions, permissionModes: modes, cwdLabel: options.label || 'Computer vault' });
+      send(ws, { type: 'edge.ready', protocol: 1, sessionId: session.id, agent: session.adapter.id, agents: listAgents(), tools: session.tools, permissions: session.permissions, permissionModes: modes, cwdLabel: options.label || 'Computer vault', sessionControl: true, steering: true });
       for (const event of session.events) send(ws, event);
       session.child.stdin.write(JSON.stringify({ type: 'get_state' } satisfies PiRequest) + '\n');
       session.child.stdin.write(JSON.stringify({ type: 'get_messages' } satisfies PiRequest) + '\n');
@@ -85,6 +91,10 @@ export function createBridge(options: BridgeOptions) {
           if (normalized.kind === 'run.started') session.busy = true;
           if (normalized.kind === 'run.finished') session.busy = false;
           if (normalized.kind === 'state') session.busy = normalized.busy;
+          if (normalized.kind === 'prompt.status' && (normalized.disposition === 'failed' || normalized.disposition === 'handled')) {
+            session.child.stdin.write(JSON.stringify({ type: 'get_state' }) + '\n');
+          }
+          if (!session.socket) expireWhenIdle(session);
           const packet: EventPacket = { type: 'edge.event', sessionId: session.id, seq: ++session.sequence, event: normalized };
           const size = Buffer.byteLength(JSON.stringify(packet));
           session.events.push(packet); session.bytes += size;
@@ -102,7 +112,7 @@ export function createBridge(options: BridgeOptions) {
       send(session.socket, { type: 'edge.error', message: 'Could not start Pi. Check the executable path on your computer.' });
       session.socket?.close(1011, 'Pi startup failed');
       clearTimeout(session.expiry);
-      sessions.delete(clientId);
+      if (sessions.get(clientId) === session) sessions.delete(clientId);
     });
     child.once('exit', (code) => {
       clearTimeout(session.expiry);
@@ -163,6 +173,12 @@ export function createBridge(options: BridgeOptions) {
       }
       const session = ws.session;
       if (session.socket !== ws || !session.child.stdin.writable) return;
+      if (message.type === 'edge.session.close') {
+        if (session.busy) return send(ws, { type: 'edge.error', message: 'Stop this chat before ending it.' });
+        session.socket = undefined;
+        removeSession(session);
+        ws.close(1000, 'Session ended'); return;
+      }
       if (message.type === 'edge.permissions') {
         if (session.busy) return send(ws, { type: 'edge.error', message: 'Stop the current run before changing permissions.' });
         try { toolsFor(message.mode, tools); } catch (error) { return send(ws, { type: 'edge.error', message: (error as Error).message }); }
@@ -178,6 +194,10 @@ export function createBridge(options: BridgeOptions) {
       if (message.type === 'prompt' && (typeof message.message !== 'string' || message.message.length > 150000)) {
         return send(ws, { type: 'edge.error', message: 'Prompt must be text shorter than 150,000 characters.' });
       }
+      if (message.type === 'prompt' && message.streamingBehavior !== undefined &&
+          message.streamingBehavior !== 'steer' && message.streamingBehavior !== 'followUp') {
+        return send(ws, { type: 'edge.error', message: 'Invalid streaming behavior.' });
+      }
       if (session.seen.has(message.id)) return;
       if (session.child.stdin.writableLength > 6 * 1024 * 1024) return ws.close(1013, 'Pi is busy');
       session.seen.add(message.id);
@@ -185,6 +205,9 @@ export function createBridge(options: BridgeOptions) {
       // Only documented command fields cross into Pi; the client cannot choose launch args or cwd.
       const command: PiRequest = { type: message.type as RpcCommandType, id: message.id };
       for (const key of ['message', 'provider', 'modelId', 'level'] as const) if (typeof message[key] === 'string') command[key] = message[key];
+      // Always supply a behavior, including for idle prompts: Pi may start work
+      // between a state snapshot and this command reaching its input queue.
+      if (message.type === 'prompt') command.streamingBehavior = message.streamingBehavior === 'followUp' ? 'followUp' : 'steer';
       if (message.type === 'prompt' && message.images !== undefined) {
         if (!Array.isArray(message.images) || message.images.length > 6) return send(ws, { type: 'edge.error', message: 'Attach at most six images.' });
         let imageBytes = 0;
@@ -201,14 +224,16 @@ export function createBridge(options: BridgeOptions) {
         }
       }
       session.child.stdin.write(JSON.stringify(command) + '\n');
+      // Mark the accepted prompt before Pi emits agent_start, so a quick socket
+      // loss or permissions change cannot terminate newly submitted work.
+      if (message.type === 'prompt') session.busy = true;
     });
     ws.on('close', () => {
       clearTimeout(deadline);
       const session = ws.session;
       if (session?.socket === ws) {
         session.socket = undefined;
-        session.expiry = setTimeout(() => removeSession(session), graceMs);
-        session.expiry.unref();
+        expireWhenIdle(session);
       }
     });
   });

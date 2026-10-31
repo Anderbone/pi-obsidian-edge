@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.8
+
+- Copy the document's vault-root path (for example, `/plannow/note.md`) directly when tapping its chat title, without a selection menu or device storage prefix.
+- Accept item-only clipboard image pastes and mobile paste input, with a clipboard image button where supported. Preview attachments and prevent sending before image imports finish.
+- Preserve sent images in messages and saved history, including queued sends, older bridge echoes and Pi session history. Show thumbnails with a larger image viewer.
+- Send steering instructions, notes and images while a chat runs. Show pending/queued messages and retain failed sends; Stop clears queued instructions before aborting.
+- Track Pi completion using agent_settled and reconstruct delta-only streaming independently for each session.
+
+- Add a compact/detail chat preference in the top-right settings. Preserve expandable tool calls, status, and bounded text inputs/results across history and background chats.
+- Ask Pi to finish requested edits, verify saved files, and explicitly report changed file paths or no changes in every final reply.
+
+- Keep up to eight independent Pi chats active, with an Active chats picker, per-chat model/effort/permissions, note labels, and in-memory composer drafts.
+- Receive and save background replies while switching chats or closing the panel. Remember active chat IDs on this device and reconnect them when reopening the panel.
+- Preserve live conversations when pruning or clearing local history. Stop and end individual chats without affecting other tasks.
+- Let disconnected Pi tasks finish before starting the bridge's idle retention timer. Add optional immediate session cleanup while keeping protocol 1 compatibility with existing bridges.
+
 ## 0.2.7
 
 - Remove the redundant nullable type reported by the community review.

@@ -1,6 +1,6 @@
 import { Plugin, ItemView, WorkspaceLeaf, PluginSettingTab, Setting, Modal, Notice, MarkdownView,
   MarkdownRenderer, FuzzySuggestModal, TFile, setIcon, requestUrl, requireApiVersion, type SettingDefinitionItem } from 'obsidian';
-import { EdgeClient } from './src/client';
+import { ConversationSession, MAX_ACTIVE_CHATS } from './src/sessions';
 import { DeviceToken } from './src/device-token';
 import { parsePairing, validatePairing, type Pairing } from './src/pairing';
 import { ChatPanel, type Attachment } from './src/panel';
@@ -12,8 +12,8 @@ import { noteCandidates, userMessage } from './src/references';
 
 const VIEW = 'pi-edge-chat';
 const PERMISSIONS: PermissionMode[] = [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }];
-interface Settings extends HistoryLimits { permissions: PermissionId; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
-const DEFAULTS: Settings = { ...DEFAULT_HISTORY_LIMITS, permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
+interface Settings extends HistoryLimits { showToolDetails: boolean; permissions: PermissionId; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
+const DEFAULTS: Settings = { ...DEFAULT_HISTORY_LIMITS, showToolDetails: false, permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
 
 class PairModal extends Modal {
   constructor(private plugin: EdgePlugin, private initial = '') { super(plugin.app); }
@@ -60,7 +60,47 @@ class HistoryPicker extends FuzzySuggestModal<Conversation> {
       });
     }
   }
-  onChooseItem(item: Conversation): void { this.plugin.settings.active = item.id; void this.plugin.saveSettings().then(() => this.plugin.reloadViews()); }
+  onChooseItem(item: Conversation): void { this.plugin.chooseConversation(item.id); }
+}
+class ActiveChatsModal extends Modal {
+  private signature = '';
+  constructor(private plugin: EdgePlugin) { super(plugin.app); }
+  private refresh = () => {
+    const sessions = [...this.plugin.sessions.values()];
+    const signature = JSON.stringify(sessions.map(session => [session.conversation.id, session.conversation.title,
+      session.conversation.notePath, session.busy, session.status, session.error, this.plugin.settings.active]));
+    if (signature === this.signature) return;
+    this.signature = signature; this.contentEl.empty();
+    for (const session of sessions) {
+      const conversation = session.conversation;
+      const status = session.status === 'ready' ? session.busy ? 'Running' : 'Idle' : session.detail;
+      const description = [conversation.notePath, status, conversation.id === this.plugin.settings.active ? 'Current chat' : '', session.error].filter(Boolean).join(' · ');
+      const row = new Setting(this.contentEl).setName(conversation.title || 'New conversation').setDesc(description);
+      row.settingEl.addClass('edge-active-chat-row');
+      row.settingEl.tabIndex = 0;
+      row.settingEl.setAttribute('role', 'link');
+      row.settingEl.setAttribute('aria-label', `Open ${conversation.title || 'New conversation'} · ${status}`);
+      const dot = row.nameEl.createSpan({ cls: 'edge-active-chat-dot' });
+      dot.dataset.running = String(session.busy);
+      dot.setAttribute('aria-hidden', 'true');
+      row.nameEl.prepend(dot);
+      const open = () => { this.close(); this.plugin.chooseConversation(conversation.id); };
+      row.settingEl.addEventListener('click', open);
+      row.settingEl.addEventListener('keydown', event => {
+        if (event.target === row.settingEl && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault(); open();
+        }
+      });
+      // Stop/End actions must not also activate the containing chat row.
+      row.controlEl.addEventListener('click', event => event.stopPropagation());
+      if (session.busy) row.addButton(button => button.setButtonText('Stop').onClick(() => session.stop()));
+      else row.addButton(button => button.setButtonText('End chat').onClick(() => this.plugin.endConversation(conversation.id)));
+    }
+    new Setting(this.contentEl).addButton(button => button.setButtonText('New chat').setDisabled(sessions.length >= MAX_ACTIVE_CHATS)
+      .onClick(() => { this.close(); this.plugin.newConversation(); }));
+  };
+  onOpen(): void { this.titleEl.setText('Active chats'); this.refresh(); this.plugin.sessionListeners.add(this.refresh); }
+  onClose(): void { this.plugin.sessionListeners.delete(this.refresh); }
 }
 class EdgeSettings extends PluginSettingTab {
   private visible = false;
@@ -108,8 +148,14 @@ function settingsDefinitions(plugin: EdgePlugin): SettingsGroup[] {
     refreshConnection(); plugin.connectionListeners.add(refreshConnection);
     return () => plugin.connectionListeners.delete(refreshConnection);
   });
-  row('Reconnect', 'Apply a changed address or token.', setting => { setting.addButton(button => button.setButtonText('Reconnect').onClick(() => plugin.reloadViews())); });
+  row('Reconnect', 'Apply a changed address or token to all active chats.', setting => { setting.addButton(button => button.setButtonText('Reconnect').onClick(() => plugin.reconnectSessions())); });
   row('Connection diagnostics', 'Connection transitions only; excludes tokens, prompts and note content.', setting => { setting.addButton(button => button.setButtonText('View').onClick(() => { const modal = new Modal(plugin.app); modal.titleEl.setText('Connection diagnostics'); modal.contentEl.createEl('pre', { text: plugin.diagnostics.join('\n') || 'No connection events yet.', cls: 'edge-diagnostics' }); modal.open(); })); });
+  group('Chat display');
+  row('Show tool call details', 'Unchecked: compact chat. Checked: show each tool call, its status, inputs and results when available.', setting => {
+    setting.addToggle(toggle => toggle.setValue(plugin.settings.showToolDetails).onChange(value => {
+      plugin.settings.showToolDetails = value; void plugin.saveSettings(); plugin.reloadViews();
+    }));
+  });
   group('Pi preferences');
   row('Default model', 'Models provided by Pi on your computer.', setting => { setting.addDropdown(dropdown => {
     dropdown.addOption('', 'Computer default');
@@ -128,10 +174,10 @@ function settingsDefinitions(plugin: EdgePlugin): SettingsGroup[] {
     dropdown.setValue(plugin.settings.permissions).setDisabled(plugin.busy).onChange(value => { if (isPermissionId(value)) plugin.setPermissions(value); });
   }); });
   group('Conversation history');
-  row('Local history', 'Saved on this device in plugin data and may sync with your vault. Images are not stored in local history.');
+  row('Local history', 'Messages and attached images are saved in plugin data and may sync with your vault.');
   for (const [key, name, description] of [
     ['historyMaxConversations', 'Maximum conversations', 'Default: 500. Oldest conversations are removed when the limit is reached.'],
-    ['historyMaxMB', 'Maximum history size', 'Default: 50 MB. Increase this to keep more conversation text.']
+    ['historyMaxMB', 'Maximum history size', 'Default: 50 MB. Increase this to keep more messages and images.']
   ] as const) {
     let value = String(plugin.settings[key]);
     row(name, description, setting => { setting.addText(text => {
@@ -144,7 +190,9 @@ function settingsDefinitions(plugin: EdgePlugin): SettingsGroup[] {
       plugin.settings[key] = limit; await plugin.saveSettings(); new Notice('History limit saved.');
     })); });
   }
-  row('Clear local history', 'Removes this plugin’s saved chat copies. Pi sessions on the computer remain separate.', setting => { setting.addButton(button => button.setButtonText('Clear history').onClick(async () => { plugin.settings.conversations = []; plugin.settings.active = ''; await plugin.saveSettings(); plugin.reloadViews(); })); });
+  row('Clear local history', 'Removes archived chats. Active chats stay available until you end them.', setting => {
+    setting.addButton(button => button.setButtonText('Clear history').onClick(() => { void plugin.clearHistory(); }));
+  });
   return groups;
 }
 function renderSettings(container: HTMLElement, plugin: EdgePlugin): () => void {
@@ -170,86 +218,103 @@ class SettingsModal extends Modal {
 
 class EdgeView extends ItemView {
   private panel?: ChatPanel;
-  private client?: EdgeClient;
+  private session?: ConversationSession;
   private conversation?: Conversation;
-  private saveTimer?: number;
+  private unsubscribe?: () => void;
   constructor(leaf: WorkspaceLeaf, private plugin: EdgePlugin) { super(leaf); }
   getViewType(): string { return VIEW; }
   getDisplayText(): string { return 'Pi Edge'; }
   getIcon(): string { return 'messages-square'; }
   async onOpen(): Promise<void> { this.render(); }
+  captureDraft(): void {
+    if (this.session && this.panel) this.session.draft = this.panel.getDraft();
+  }
+  private detach(): void {
+    this.captureDraft();
+    this.unsubscribe?.(); this.unsubscribe = undefined;
+    this.plugin.sessionListeners.delete(this.updateCount);
+    this.panel?.dispose(); this.session = undefined;
+  }
+  private updateCount = () => { this.panel?.setActiveCount(this.plugin.sessions.size, [...this.plugin.sessions.values()].filter(session => session.busy).length); };
   render(): void {
-    this.client?.disconnect(); this.panel?.dispose(); window.clearTimeout(this.saveTimer);
+    this.detach();
     this.conversation = this.plugin.activeConversation();
     const pairing = this.plugin.pairing();
     this.panel = new ChatPanel(this.contentEl, {
-      send: (text, attachments) => this.send(text, attachments), stop: () => this.client?.send('abort'),
+      send: (text, attachments) => this.send(text, attachments), stop: () => this.session?.stop(),
       pair: () => new PairModal(this.plugin).open(), settings: () => this.plugin.openSettings(),
-      fresh: () => { this.plugin.settings.active = ''; void this.plugin.saveSettings().then(() => this.render()); },
-      history: () => new HistoryPicker(this.plugin).open(),
+      fresh: () => this.plugin.newConversation(),
+      history: () => new HistoryPicker(this.plugin).open(), active: () => new ActiveChatsModal(this.plugin).open(),
       attach: kind => this.attach(kind),
-      model: id => this.selectModel(id),
+      model: id => this.plugin.selectModel(id),
       effort: level => this.plugin.setEffort(level),
       permissions: mode => this.plugin.setPermissions(mode),
       icon: (element, name) => setIcon(element, name),
       openNote: path => { void this.plugin.openNote(path); },
-      markdown: (text, element) => { void MarkdownRenderer.render(this.app, text, element, this.plugin.lastFile?.path || '', this); },
-      changed: messages => {
-        if (!this.conversation) return;
-        this.conversation.messages = messages; this.conversation.updated = Date.now();
-        const firstUser = messages.find(message => message.role === 'user');
-        if (firstUser) this.conversation.title = userMessage(firstUser.text).text.slice(0, 70);
-        window.clearTimeout(this.saveTimer); this.saveTimer = window.setTimeout(() => { void this.plugin.saveSettings(); }, 400);
-      }
+      copyNotePath: path => { void this.plugin.copyNotePath(path); },
+      markdown: (text, element) => { void MarkdownRenderer.render(this.app, text, element, this.conversation?.notePath || '', this); },
+      changed: () => {}
     }, !!pairing);
+    this.panel.setToolDetails(this.plugin.settings.showToolDetails);
     this.panel.restore(this.conversation.messages);
+    this.panel.setConversation(this.conversation.title, this.conversation.notePath);
     if (!pairing) return;
-    this.client = new EdgeClient(pairing, this.conversation.id, {
-      status: (state, detail) => { this.plugin.recordStatus(state); this.panel?.statusChanged(state, detail); },
-      event: event => {
-        this.plugin.updateCatalog(event);
-        if (event.type === 'edge.ready') {
-          this.panel?.setPermissions(event.permissions || 'full', event.permissionModes || PERMISSIONS);
-          this.client?.send('get_available_models');
-          this.client?.send('get_available_thinking_levels');
-          this.client?.send('set_thinking_level', { level: this.plugin.settings.thinking });
-          if (this.plugin.settings.defaultModel) this.selectModel(this.plugin.settings.defaultModel);
-        } else if (event.kind === 'state.refresh') { this.client?.send('get_state'); this.client?.send('get_available_thinking_levels'); }
-        else this.panel?.handle(event);
-      }
-    }, undefined, this.plugin.settings.permissions);
-    this.client.connect();
+    this.plugin.restoreSessions();
+    try { this.session = this.plugin.sessionFor(this.conversation); }
+    catch (error) { this.panel.error((error as Error).message); return; }
+    const session = this.session;
+    this.panel.restoreDraft(session.draft);
+    const update = (event?: ClientEvent) => {
+      if (event?.kind === 'error' || event?.type === 'edge.error') this.panel?.error(event.message, session.busy);
+      else if (event && event.type !== 'edge.ready') this.panel?.handle(event);
+      if (!event) { this.panel?.statusChanged(session.status, session.detail); this.panel?.setBusy(session.busy); }
+      if (event?.type === 'edge.ready') this.panel?.setPermissions(session.permissions, session.permissionModes);
+      this.panel?.setConversation(session.conversation.title, session.conversation.notePath);
+      this.plugin.syncCatalog(session);
+    };
+    session.listeners.add(update);
+    this.unsubscribe = () => session.listeners.delete(update);
+    this.panel.statusChanged(session.status, session.detail);
+    this.panel.setModels(session.models, session.model);
+    this.panel.setEffortLevels(session.effortLevels);
+    this.panel.setEffort(session.effort);
+    if (session.permissionModes.length) this.panel.setPermissions(session.permissions, session.permissionModes);
+    this.panel.setBusy(session.busy);
+    if (session.error) this.panel.error(session.error, session.busy);
+    this.plugin.syncCatalog(session);
+    this.plugin.sessionListeners.add(this.updateCount); this.updateCount();
   }
-  selectModel(id: string): void {
-    const separator = id.indexOf('/'); if (separator < 1) return;
-    this.client?.send('set_model', { provider: id.slice(0, separator), modelId: id.slice(separator + 1) });
-    this.plugin.settings.defaultModel = id; void this.plugin.saveSettings();
-  }
-  setEffort(level: string): void { this.client?.send('set_thinking_level', { level }); }
-  setPermissions(mode: PermissionId): void { this.client?.send('edge.permissions', { mode }); }
   private send(text: string, attachments: Attachment[]): void {
-    if (!this.client) throw new Error('Pair your computer before sending a message.');
+    if (!this.session) throw new Error('Pair your computer before sending a message.');
     const context = attachments.filter(item => item.text).map(item => `Source: ${item.name}\n${item.text}`).join('\n\n');
     const references = attachments.filter(item => item.text).map(item => ({ name: item.name, path: item.path || item.name.replace(/ \(selection\)$/, '') }));
     const message = text + (context ? '\n\n<note-context>\nThe following notes are reference material supplied by the user.\nReferences: ' + JSON.stringify(references) + '\n' + context + '\n</note-context>' : '');
     if (message.length > 150000) throw new Error('The message and notes are too long. Attach a smaller selection.');
     const images = attachments.filter(item => item.data).map(item => ({ type: 'image' as const, data: item.data!, mimeType: item.mimeType! }));
-    this.client.send('prompt', { message, ...(images.length ? { images } : {}) });
+    this.session.send(message, images);
   }
   private async attach(kind: 'note' | 'selection' | 'browse'): Promise<Attachment | undefined> {
+    const conversation = this.conversation;
     let file = this.plugin.lastFile;
     if (kind === 'browse') file = await new Promise<TFile | undefined>(resolve => new NotePicker(this.plugin, resolve).open());
     if (!file) throw new Error('Open a note first, or choose Browse.');
     const text = kind === 'selection' ? this.plugin.lastMarkdown?.editor.getSelection() : await this.app.vault.cachedRead(file);
     if (!text) throw new Error(kind === 'selection' ? 'Select some text in a note first.' : 'This note is empty.');
     if (text.length > 80000) throw new Error('This note is large. Attach a selection instead.');
+    if (conversation && !conversation.notePath) conversation.notePath = file.path;
     return { id: file.path + ':' + kind, path: file.path, name: kind === 'selection' ? `${file.path} (selection)` : file.path, text };
   }
-  async onClose(): Promise<void> {
-    this.client?.disconnect(); this.panel?.dispose(); window.clearTimeout(this.saveTimer); await this.plugin.saveSettings();
-  }
+  async onClose(): Promise<void> { this.detach(); await this.plugin.saveSettings(); }
 }
 export default class EdgePlugin extends Plugin {
+  async copyNotePath(path: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText('/' + path.replace(/^\/+/, ''));
+      new Notice('已复制仓库内路径');
+    } catch {
+      new Notice('复制失败，请检查剪贴板权限后重试');
+    }
+  }
   async openNote(path: string): Promise<void> {
     const files = noteCandidates(path, this.app.vault.getMarkdownFiles());
     if (!files.length) { new Notice('Note not found in its project. It may not have synced yet: ' + path); return; }
@@ -259,6 +324,75 @@ export default class EdgePlugin extends Plugin {
     } catch { new Notice('Could not open note: ' + files[0].path); }
   }
   settings: Settings = { ...DEFAULTS }; diagnostics: string[] = [];
+  sessions = new Map<string, ConversationSession>();
+  sessionListeners = new Set<() => void>();
+  private restoredSessions = false;
+  private savedSessionIds: string[] = [];
+  private saveTimer?: number;
+  private scheduleSave(): void {
+    window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => { void this.saveSettings(); }, 400);
+  }
+  private rememberSessions(): void {
+    this.savedSessionIds = [...this.sessions.keys()];
+    this.app.saveLocalStorage('pi-edge:active-chats', this.savedSessionIds);
+    for (const listener of this.sessionListeners) listener();
+  }
+  sessionFor(conversation: Conversation): ConversationSession {
+    const existing = this.sessions.get(conversation.id);
+    if (existing) return existing;
+    if (this.sessions.size >= MAX_ACTIVE_CHATS) throw new Error('Up to eight chats can stay active. End an idle chat in Active chats first.');
+    const pairing = this.pairing();
+    if (!pairing) throw new Error('Pair your computer before starting a chat.');
+    const session = new ConversationSession(conversation, {
+      pairing, permissions: this.settings.permissions, model: this.settings.defaultModel, effort: this.settings.thinking,
+      changed: () => {
+        this.scheduleSave();
+        if (this.settings.active === conversation.id) this.syncCatalog(session);
+        for (const listener of this.sessionListeners) listener();
+      },
+      status: state => { this.recordStatus(state); for (const listener of this.sessionListeners) listener(); }
+    });
+    this.sessions.set(conversation.id, session); this.rememberSessions();
+    this.scheduleSave(); session.connect(); return session;
+  }
+  restoreSessions(): void {
+    if (this.restoredSessions) return;
+    this.restoredSessions = true;
+    const ids = [...this.savedSessionIds];
+    for (const id of ids.slice(0, MAX_ACTIVE_CHATS)) {
+      const conversation = this.settings.conversations.find(item => item.id === id);
+      if (conversation) this.sessionFor(conversation);
+    }
+  }
+  chooseConversation(id: string): void {
+    if (this.pairing()) this.restoreSessions();
+    if (!this.sessions.has(id) && this.pairing() && this.sessions.size >= MAX_ACTIVE_CHATS) {
+      new Notice('End an idle chat in active chats before opening another one.'); return;
+    }
+    this.settings.active = id; this.reloadViews(); void this.saveSettings();
+  }
+  newConversation(): void {
+    if (this.pairing()) this.restoreSessions();
+    if (this.sessions.size >= MAX_ACTIVE_CHATS) { new Notice('End an idle chat in active chats before starting another one.'); return; }
+    this.settings.active = ''; this.activeConversation(); this.reloadViews(); void this.saveSettings();
+  }
+  endConversation(id: string): void {
+    const session = this.sessions.get(id); if (!session || session.busy) return;
+    session.dispose(true); this.sessions.delete(id); this.rememberSessions();
+    if (this.settings.active === id) this.settings.active = this.sessions.keys().next().value || '';
+    this.reloadViews(); void this.saveSettings();
+  }
+  reconnectSessions(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).captureDraft();
+    this.savedSessionIds = [...new Set([...this.savedSessionIds, ...this.sessions.keys()])];
+    const drafts = new Map([...this.sessions].map(([id, session]) => [id, session.draft]));
+    for (const session of this.sessions.values()) session.dispose();
+    this.sessions.clear(); this.restoredSessions = false;
+    if (this.pairing()) this.restoreSessions();
+    for (const [id, draft] of drafts) { const session = this.sessions.get(id); if (session) session.draft = draft; }
+    this.reloadViews();
+  }
   connectionState: { state: 'idle' | 'testing' | 'connected' | 'error'; message: string } = { state: 'idle', message: 'Not tested' };
   connectionListeners = new Set<() => void>();
   private connectionTest?: AbortController;
@@ -292,18 +426,15 @@ export default class EdgePlugin extends Plugin {
   permissionModes: PermissionMode[] = PERMISSIONS;
   catalogListeners = new Set<() => void>();
   busy = false;
-  private activeView(): EdgeView | undefined { return this.app.workspace.getLeavesOfType(VIEW)[0]?.view as EdgeView | undefined; }
-  selectModel(id: string): void { this.activeView()?.selectModel(id); }
-  setEffort(level: string): void { this.settings.thinking = level; void this.saveSettings(); this.activeView()?.setEffort(level); }
-  setPermissions(mode: PermissionId): void { this.activeView()?.setPermissions(mode); }
-  updateCatalog(event: ClientEvent): void {
-    let changed = false;
-    if (event.type === 'edge.ready') { this.settings.permissions = event.permissions || 'full'; this.permissionModes = event.permissionModes || PERMISSIONS; void this.saveSettings(); changed = true; }
-    if (event.kind === 'models') { this.models = event.models; changed = true; }
-    if (event.kind === 'effort.levels') { this.effortLevels = event.levels; changed = true; }
-    if (event.kind === 'state') { this.busy = event.busy; this.settings.thinking = event.effort || 'off'; changed = true; }
-    if (event.kind === 'run.started') { this.busy = true; changed = true; }
-    if (event.kind === 'run.finished') { this.busy = false; changed = true; }
+  selectModel(id: string): void { this.settings.defaultModel = id; void this.saveSettings(); this.sessions.get(this.settings.active)?.selectModel(id); }
+  setEffort(level: string): void { this.settings.thinking = level; void this.saveSettings(); this.sessions.get(this.settings.active)?.setEffort(level); }
+  setPermissions(mode: PermissionId): void { this.sessions.get(this.settings.active)?.setPermissions(mode); }
+  syncCatalog(session: ConversationSession): void {
+    const changed = this.models !== session.models || this.effortLevels !== session.effortLevels || this.permissionModes !== session.permissionModes ||
+      this.busy !== session.busy || this.settings.permissions !== session.permissions || this.settings.thinking !== session.effort;
+    this.models = session.models; this.effortLevels = session.effortLevels; this.busy = session.busy;
+    if (session.permissionModes.length) this.permissionModes = session.permissionModes;
+    this.settings.permissions = session.permissions; this.settings.thinking = session.effort;
     if (changed) for (const listener of this.catalogListeners) listener();
   }
   lastFile?: TFile; lastMarkdown?: MarkdownView;
@@ -311,15 +442,21 @@ export default class EdgePlugin extends Plugin {
   token(): string { return this.deviceToken?.get() || ''; }
   setToken(token: string): void { this.deviceToken!.set(token); this.invalidateConnectionTest(); }
   pairing(): Pairing | undefined { try { return validatePairing({ url: this.settings.url, token: this.token() }); } catch { return undefined; } }
-  async pair(pairing: Pairing): Promise<void> { this.settings.url = pairing.url; this.setToken(pairing.token); await this.saveSettings(); this.reloadViews(); await this.openPanel(); new Notice('Computer paired.'); }
+  async pair(pairing: Pairing): Promise<void> { this.settings.url = pairing.url; this.setToken(pairing.token); await this.saveSettings(); this.reconnectSessions(); await this.openPanel(); new Notice('Computer paired.'); }
   activeConversation(): Conversation {
     let conversation = this.settings.conversations.find(item => item.id === this.settings.active);
-    if (!conversation) { conversation = { id: crypto.randomUUID(), title: 'New conversation', messages: [], updated: Date.now() }; this.settings.conversations.push(conversation); this.settings.active = conversation.id; }
+    if (!conversation) { conversation = { id: crypto.randomUUID(), title: 'New conversation', messages: [], updated: Date.now(), notePath: this.lastFile?.path }; this.settings.conversations.push(conversation); this.settings.active = conversation.id; }
     return conversation;
   }
+  private liveConversationIds(): Set<string> { return new Set([...this.savedSessionIds, ...this.sessions.keys()]); }
   async saveSettings(): Promise<void> {
-    this.settings.conversations = pruneHistory(this.settings.conversations, this.settings.active, this.settings);
+    this.settings.conversations = pruneHistory(this.settings.conversations, this.settings.active, this.settings, this.liveConversationIds());
     await this.saveData(this.settings);
+  }
+  async clearHistory(): Promise<void> {
+    const live = this.liveConversationIds();
+    this.settings.conversations = this.settings.conversations.filter(conversation => live.has(conversation.id));
+    await this.saveSettings();
   }
   reloadViews(): void { for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).render(); }
   openSettings(): void { new SettingsModal(this).open(); }
@@ -336,16 +473,25 @@ export default class EdgePlugin extends Plugin {
     const saved: unknown = await this.loadData();
     this.settings = { ...DEFAULTS, ...(isRecord(saved) ? saved : {}) };
     Object.assign(this.settings, historyLimits(this.settings));
+    const sessionIds: unknown = this.app.loadLocalStorage('pi-edge:active-chats');
+    this.savedSessionIds = Array.isArray(sessionIds) ? sessionIds.filter((id): id is string => typeof id === 'string') : [];
     this.register(() => this.invalidateConnectionTest());
     this.lastFile = this.app.workspace.getActiveFile() || undefined;
     this.lastMarkdown = this.app.workspace.getActiveViewOfType(MarkdownView) || undefined;
     this.registerView(VIEW, leaf => new EdgeView(leaf, this));
     this.addRibbonIcon('messages-square', 'Pi Edge', () => { void this.openPanel(); });
     this.addCommand({ id: 'open', name: 'Open chat', callback: () => { void this.openPanel(); } });
+    this.addCommand({ id: 'new-chat', name: 'New chat', callback: () => { this.newConversation(); void this.openPanel(); } });
+    this.addCommand({ id: 'active-chats', name: 'Active chats', callback: () => { void this.openPanel().then(() => new ActiveChatsModal(this).open()); } });
     this.addCommand({ id: 'pair', name: 'Pair computer', callback: () => new PairModal(this).open() });
     this.addSettingTab(new EdgeSettings(this));
     this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => { if (leaf?.view instanceof MarkdownView) { this.lastMarkdown = leaf.view; this.lastFile = leaf.view.file || undefined; } }));
     this.registerEvent(this.app.workspace.on('file-open', file => { if (file) this.lastFile = file; }));
     this.registerObsidianProtocolHandler('pi-edge', parameters => { if (parameters.code) new PairModal(this, parameters.code).open(); else void this.openPanel(); });
+  }
+  onunload(): void {
+    window.clearTimeout(this.saveTimer);
+    for (const session of this.sessions.values()) session.dispose();
+    void this.saveSettings();
   }
 }

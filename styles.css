@@ -9,6 +9,16 @@
 .edge-header { display:flex; align-items:center; justify-content:space-between; padding:6px 10px 0; gap:8px; flex-shrink:0; }
 .edge-heading { display:flex; align-items:center; gap:6px; }
 .edge-heading h2 { margin:0; font-size:14px; font-weight:600; letter-spacing:-.02em; }
+.edge-conversation { display:flex; align-items:center; gap:8px; flex-shrink:0; padding:3px 12px; color:var(--text-muted,#999); font-size:11px; }
+.edge-conversation-title { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border:0; background:transparent; box-shadow:none; color:inherit; font:inherit; text-align:left; padding:4px 0; height:auto; cursor:pointer; }
+.edge-conversation-title:not(:disabled):hover { color:var(--text-normal); text-decoration:underline; }
+.edge-conversation-title:disabled { cursor:default; opacity:1; }
+.edge-chat-state { flex-shrink:0; font-size:10px; }
+.edge-chat-state[data-running='true'] { color:var(--edge-accent); }
+.edge-panel .edge-icon-button.edge-active-button { width:auto; gap:4px; }
+.edge-active-label,.edge-active-count { font-size:11px; }
+.edge-active-count { min-width:10px; }
+.edge-panel .edge-active-button[data-running='true'] { color:var(--edge-accent); }
 .edge-mark { font:21px Georgia,serif; color:var(--edge-accent); }
 .edge-header-actions,.edge-reference-actions,.edge-primary-actions { display:flex; align-items:center; gap:2px; }
 .edge-panel button { cursor:pointer; font:inherit; color:var(--text-muted,#aaa); background:transparent; box-shadow:none; border:0; border-radius:var(--radius-s,6px); padding:6px 8px; min-height:32px; transition:background .12s,color .12s; }
@@ -66,15 +76,24 @@
 .edge-activity[data-error='true'] { color:var(--text-error,#e78d8d); }
 .edge-composer { flex-shrink:0; margin:0 8px 8px; padding:6px; border:1px solid var(--background-modifier-border,#383838); border-radius:var(--radius-m,8px); background:var(--background-primary-alt,var(--background-primary,#252525)); }
 .edge-composer:focus-within { border-color:var(--background-modifier-border-focus,var(--edge-accent)); }
-.edge-input { height:var(--edge-input-height,auto); display:block; width:100%; resize:none; min-height:46px; max-height:140px; font:inherit; font-size:16px; line-height:1.4; background:transparent; border:0; box-shadow:none; color:inherit; padding:4px 5px; }
-.edge-input:focus { outline:none; }
-.edge-toolbar { display:flex; align-items:center; gap:4px; padding-top:3px; }
+.edge-panel .edge-composer textarea.edge-input { height:var(--edge-input-height,auto); display:block; width:100%; resize:none; min-height:46px; max-height:140px; font:inherit; font-size:16px; line-height:1.4; appearance:none; background:transparent; border:0; border-radius:0; box-shadow:none; color:inherit; padding:4px 5px; }
+.edge-panel .edge-composer textarea.edge-input:focus { outline:none; box-shadow:none; }
+.edge-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:4px; padding-top:3px; }
 .edge-reference-actions { gap:0; }
 .edge-panel .edge-reference-actions .edge-icon-button { width:30px; }
 .edge-permissions { min-width:0; max-width:118px; margin-left:auto; }
 .edge-primary-actions { margin-left:0; }
 .edge-attachments { display:flex; flex-wrap:wrap; gap:4px; }
 .edge-panel .edge-attachment { font-size:10px; min-height:24px; padding:3px 5px; max-width:100%; overflow:hidden; text-overflow:ellipsis; background:var(--background-modifier-hover,#ffffff0a); }
+.edge-panel .edge-attachment { display:inline-flex; align-items:center; gap:5px; }
+.edge-attachment-preview { width:32px; height:32px; object-fit:cover; border-radius:3px; }
+.edge-message-images { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; white-space:normal; }
+.edge-panel .edge-message-image { display:block; height:auto; max-width:100%; padding:0; overflow:hidden; border-radius:6px; background:transparent; cursor:zoom-in; }
+.edge-message-image img { display:block; width:auto; height:auto; max-width:min(260px,100%); max-height:220px; object-fit:contain; }
+.edge-image-dialog { max-width:94vw; max-height:90dvh; padding:12px; border:1px solid var(--background-modifier-border,#383838); border-radius:8px; color:var(--text-normal,#eee); background:var(--background-primary,#252525); }
+.edge-image-dialog::backdrop { background:#000a; }
+.edge-image-dialog > button { display:block; margin:0 0 8px auto; }
+.edge-image-dialog > img { display:block; max-width:100%; max-height:calc(90dvh - 80px); object-fit:contain; }
 .edge-pair-input { width:100%; min-height:140px; font-family:var(--font-monospace,monospace); font-size:12px; }
 .edge-diagnostics { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
 .edge-connection-test { display:flex; align-items:center; gap:6px; margin-top:6px; color:var(--text-muted,#999); }
@@ -95,3 +114,18 @@
 .edge-panel .edge-user .edge-copy { align-self:flex-end; }
 
 .workspace-leaf-content[data-type="pi-edge-chat"] .view-content.edge-panel { padding:0; }
+
+/* Tool records remain in history; the display preference only affects visibility. */
+.edge-panel:not(.edge-show-tools) .edge-tool-message { display: none; }
+.edge-tool-message { font-size: var(--font-ui-small); color: var(--text-muted); }
+.edge-tool-message .edge-copy, .edge-tool-message .edge-message-label { display: none; }
+.edge-tool-details { border-left: 2px solid var(--background-modifier-border); padding: 6px 12px; }
+.edge-tool-details summary { cursor: pointer; overflow-wrap: anywhere; }
+.edge-tool-label { margin-top: 8px; font-weight: 600; }
+.edge-tool-content { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; user-select: text; }
+
+.edge-active-chat-row { cursor: pointer; }
+.edge-active-chat-row:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+.edge-active-chat-row .setting-item-name { display: flex; align-items: baseline; gap: 8px; }
+.edge-active-chat-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-yellow, #e5b94b); }
+.edge-active-chat-dot[data-running='true'] { background: var(--color-green, #4ac779); }

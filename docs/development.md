@@ -17,6 +17,7 @@ The UI preview runs on `http://127.0.0.1:8781`, uses the real panel component, a
 
 - `main.ts`: Obsidian integration, pairing, settings, notes, and local history.
 - `src/client.ts`: readiness, queueing, reconnection, and replay deduplication.
+- `src/sessions.ts`: view-independent chat lifetimes, background messages, and per-chat state and drafts.
 - `src/panel.ts`: mobile-friendly chat UI, attachments, and Markdown rendering callbacks.
 - `bridge/server.mts`: authentication, session lifetime, host policy, and WebSocket transport.
 - `bridge/agents.mts`: Pi CLI launch and translation to provider-independent events.

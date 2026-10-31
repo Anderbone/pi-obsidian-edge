@@ -24,6 +24,7 @@ export class EdgeClient {
   private attempts = 0;
   private sequence = 0;
   private seen = new Set<string>();
+  private sessionControl = false;
   constructor(private pairing: Pairing, private clientId: string, private hooks: ClientHooks,
     private createSocket: (url: string) => SocketLike = url => new WebSocket(url) as unknown as SocketLike, private permissions: PermissionId = 'full') {}
   connect(): void {
@@ -49,6 +50,7 @@ export class EdgeClient {
         this.ready = true;
         this.attempts = 0;
         this.permissions = message.permissions || this.permissions;
+        this.sessionControl = !!message.sessionControl;
         this.hooks.status('ready', 'Connected');
         this.hooks.event(message);
         for (const command of this.pending.splice(0)) socket.send(JSON.stringify(command));
@@ -99,5 +101,9 @@ export class EdgeClient {
     this.ready = false;
     socket?.close();
     this.hooks.status('disconnected', 'Disconnected');
+  }
+  endSession(): void {
+    if (this.ready && this.sessionControl) this.send('edge.session.close');
+    this.disconnect();
   }
 }

@@ -37,3 +37,13 @@ test('malformed reference manifests fall back to source names without trusting u
   const text = 'Question\n\n<note-context>\nReferences: [null,{"name":"bad","path":42}]\nSource: folder/note.md\nExcerpt\n</note-context>';
   assert.deepEqual(userMessage(text), { text: 'Question', references: [{ name: 'folder/note.md', path: 'folder/note.md' }] });
 });
+
+test('completion requirements reach Pi without leaking into user messages or note links', async () => {
+  const { completionPrompt } = await import('../src/references');
+  const original = '更新计划\n\n<note-context>\nReferences: [{"name":"计划.md","path":"计划.md"}]\nSource: 计划.md\n原计划\n</note-context>';
+  const prompt = completionPrompt(original);
+  assert.match(prompt, /actually use the available tools/);
+  assert.match(prompt, /If no files changed, explicitly say so/);
+  assert.deepEqual(userMessage(prompt), userMessage(original));
+  assert.deepEqual(userMessage(completionPrompt('你好')), { text: '你好', references: [] });
+});

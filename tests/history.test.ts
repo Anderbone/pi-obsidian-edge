@@ -47,3 +47,24 @@ test('oversized active conversations keep the newest complete messages within th
   assert.ok(bytes(kept) <= 1_000_000);
   assert.deepEqual(pruneHistory([], '', DEFAULT_HISTORY_LIMITS), []);
 });
+
+test('archive limits preserve every live chat and its complete messages, even when live chats exceed the limits', () => {
+  const a = conversation('live-a', 0, '你'.repeat(200000), 2);
+  const b = conversation('live-b', 1, 'Background context');
+  const archived = conversation('archived', 2);
+  const kept = pruneHistory([a, b, archived], b.id, { historyMaxConversations: 1, historyMaxMB: 1 }, new Set([a.id, b.id]));
+  assert.deepEqual(kept.map(item => item.id), ['live-b', 'live-a']);
+  assert.equal(a.messages.length, 2);
+  assert.equal(a.messages[0].text.length, 200000);
+});
+
+test('saved image data survives history serialization and counts toward the size limit', () => {
+  const image = { mimeType: 'image/png', data: 'a'.repeat(600_000) };
+  const older = conversation('older', 1), newer = conversation('newer', 2);
+  older.messages[0].images = [image]; newer.messages[0].images = [image];
+  const saved = JSON.parse(JSON.stringify([older, newer])) as Conversation[];
+  const kept = pruneHistory(saved, newer.id, { historyMaxConversations: 500, historyMaxMB: 1 });
+  assert.deepEqual(kept.map(item => item.id), [newer.id]);
+  assert.deepEqual(kept[0].messages[0].images, [image]);
+  assert.ok(bytes(kept) <= 1_000_000);
+});
