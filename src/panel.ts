@@ -13,7 +13,6 @@ export interface PanelActions {
   settings(): void;
   fresh(): void;
   history(): void;
-  active(): void;
   attach(kind: 'note' | 'selection' | 'browse'): Promise<Attachment | undefined>;
   model(id: string): void;
   effort(level: string): void;
@@ -67,10 +66,10 @@ export class ChatPanel {
     const heading = node('div', 'edge-heading');
     heading.append(node('span', 'edge-mark', 'π'), node('h2', '', 'Pi Edge'));
     const controls = node('div', 'edge-header-actions');
-    this.activeButton = this.iconButton('Active', 'Active chats', () => actions.active(), 'panels-top-left', 'edge-active-button');
+    this.activeButton = this.iconButton('History', 'Chat history', () => actions.history(), 'history', 'edge-active-button');
     this.activeCount = node('span', 'edge-active-count', '0');
-    this.activeButton.append(node('span', 'edge-active-label', 'Active'), this.activeCount);
-    controls.append(this.iconButton('+', 'New conversation', () => actions.fresh(), 'plus'), this.activeButton, this.iconButton('History', 'Conversation history', () => actions.history(), 'history'), this.iconButton('Settings', 'Open settings', () => actions.settings(), 'settings'));
+    this.activeButton.append(node('span', 'edge-active-label', 'History'), this.activeCount);
+    controls.append(this.iconButton('+', 'New conversation', () => actions.fresh(), 'plus'), this.activeButton, this.iconButton('Settings', 'Open settings', () => actions.settings(), 'settings'));
     header.append(heading, controls);
     const conversation = node('div', 'edge-conversation');
     this.conversationLabel = node('button', 'edge-conversation-title', 'New conversation');
@@ -94,7 +93,7 @@ export class ChatPanel {
     this.transcript = node('div', 'edge-transcript'); this.transcript.setAttribute('role', 'log'); this.transcript.setAttribute('aria-label', 'Conversation');
     this.empty = node('section', 'edge-empty');
     this.empty.append(node('h3', '', paired ? 'Start a conversation' : 'Connect your computer'),
-      node('p', '', paired ? 'Ask Pi or attach a note to begin.' : 'Start the bridge on your computer, then paste its connection code here.'));
+      node('p', '', paired ? 'Fresh context. Ask Pi or attach a note to begin.' : 'Start the bridge on your computer, then paste its connection code here.'));
     if (!paired) this.empty.append(button('Pair computer', 'Paste a connection code', () => actions.pair(), 'mod-cta'));
     this.typing = node('div', 'edge-typing'); this.typing.hidden = true; this.typing.setAttribute('role', 'status');
     const dots = node('span', 'edge-typing-dots'); dots.setAttribute('aria-hidden', 'true');
@@ -152,17 +151,18 @@ export class ChatPanel {
     const element = button(label, title, action, `edge-icon-button ${cls}`); this.actions.icon?.(element, icon); return element;
   }
   setToolDetails(show: boolean): void { this.root.classList.toggle('edge-show-tools', show); }
-  setActiveCount(total: number, running: number): void {
-    this.activeCount.textContent = String(total);
+  setActiveCount(_total: number, running: number): void {
+    this.activeCount.textContent = running ? String(running) : '';
+    this.activeCount.hidden = !running;
     this.activeButton.dataset.running = String(running > 0);
-    this.activeButton.title = `${total} active chats · ${running} running`;
-    this.activeButton.setAttribute('aria-label', `Active chats: ${total}, running: ${running}`);
+    this.activeButton.title = `Chat history · ${running} running`;
+    this.activeButton.setAttribute('aria-label', `Chat history, running: ${running}`);
   }
   setConversation(title: string, notePath?: string): void {
-    this.conversationLabel.textContent = notePath ? `${notePath.split('/').pop()} · ${title}` : title;
+    this.conversationLabel.textContent = notePath || title;
     this.conversationNotePath = notePath;
     this.conversationLabel.disabled = !notePath;
-    this.conversationLabel.title = notePath ? `${notePath} · 点击复制仓库内路径` : title;
+    this.conversationLabel.title = notePath ? `${notePath} · ${title} · 点击复制仓库内路径` : title;
     this.conversationLabel.setAttribute('aria-label', notePath ? `复制文档路径（从仓库根目录）：${notePath}` : title);
   }
   getDraft(): ComposerDraft { return { text: this.input.value, attachments: [...this.attachments] }; }

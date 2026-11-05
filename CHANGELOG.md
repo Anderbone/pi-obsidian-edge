@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.9
+
+- Merge active chats and saved conversations into one searchable History list, with running tasks first, Stop controls, note links, and last message dates. Resume the original context from any saved chat.
+- Automatically close connections after 24 hours of inactivity while preserving history, running tasks, and unsent drafts. Release safe idle connections when another chat needs a slot.
+- Keep last message times and idle timers unchanged when viewing chats or restoring history.
+- Start independent context when switching notes or reopening the plugin, preserving previous chats and background tasks in History. Show the full source-note path in the chat header.
+
 ## 0.2.8
 
 - Copy the document's vault-root path (for example, `/plannow/note.md`) directly when tapping its chat title, without a selection menu or device storage prefix.

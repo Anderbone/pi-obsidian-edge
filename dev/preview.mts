@@ -27,7 +27,7 @@ const panel = new ChatPanel(root, {
     const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',paths[name]||paths.plus);svg.append(path);element.replaceChildren(svg);
   },
   stop() { panel.setBusy(false); }, pair() { panel.error('Preview only. Use the installed plugin to pair a computer.'); },
-  settings() { panel.error('Preview only. Settings are available in Obsidian.'); }, fresh() { panel.restore([]); }, history() {}, active() { panel.error('Preview only. Active chats are available in Obsidian.'); },
+  settings() { panel.error('Preview only. Settings are available in Obsidian.'); }, fresh() { panel.restore([]); }, history() { panel.error('Preview only. Chat history is available in Obsidian.'); },
   async attach(kind) { return { id: kind, name: kind === 'selection' ? 'Project notes (selection)' : 'Project notes.md', text: 'Preview note context.' }; },
   permissions(mode) { panel.setPermissions(mode, [{id: 'read', label:'Read only'}, {id:'edit',label:'Read & write'}, {id:'full',label:'Full access'}]); },
   model() {}, effort(level) { panel.setEffort(level); }, markdown(text, element) { element.textContent = text; }, changed() {}

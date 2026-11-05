@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildSync } from 'esbuild';
 import { runInNewContext } from 'node:vm';
-import type { App, PluginManifest, PluginSettingTab, Setting, SettingDefinition, SettingGroup } from 'obsidian';
+import type { App, PluginManifest, PluginSettingTab, Setting, SettingDefinition, SettingGroup, TFile } from 'obsidian';
 import type EdgePlugin from '../main';
 import type { SocketLike } from '../src/client';
 import type { AgentEvent, ClientPacket } from '../shared/protocol';
@@ -38,12 +38,15 @@ class SettingHost {
 
 // Load the real plugin against a small Obsidian host, without Electron or Pi.
 const code = buildSync({ entryPoints: ['main.ts'], bundle: true, platform: 'browser', format: 'cjs', external: ['obsidian'], write: false }).outputFiles[0].text;
-async function loadPlugin(modernSettings = true, initial?: { settings: unknown; activeIds: string[] }) {
+async function loadPlugin(modernSettings = true, initial?: { settings: unknown; activeIds: string[]; file?: TFile }) {
   let updates = 0;
   let tab: PluginSettingTab | undefined;
   let saved: unknown;
   const device = new Map<string, unknown>(initial ? [['pi-edge:active-chats', initial.activeIds]] : []);
   const sockets: SocketHost[] = [];
+  const workspaceEvents = new Map<string, (...args: unknown[]) => void>();
+  let activeFile = initial?.file ?? null;
+  class MarkdownHost { constructor(public file: TFile) {} }
   class SocketHost implements SocketLike {
     readyState = 0; sent: ClientPacket[] = []; closes = 0;
     onopen: SocketLike['onopen'] = null; onmessage: SocketLike['onmessage'] = null;
@@ -75,16 +78,19 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     module, exports: module.exports, TextEncoder, URL, crypto: globalThis.crypto, WebSocket: SocketHost,
     require: (name: string) => {
       assert.equal(name, 'obsidian');
-      return { Setting: SettingHost, requireApiVersion: () => modernSettings, Plugin: PluginHost, PluginSettingTab: SettingTabHost, ItemView: class {}, Modal: class {}, FuzzySuggestModal: class {}, MarkdownView: class {}, Notice: class {} };
+      return { Setting: SettingHost, requireApiVersion: () => modernSettings, Plugin: PluginHost, PluginSettingTab: SettingTabHost, ItemView: class {}, Modal: class {}, FuzzySuggestModal: class {}, MarkdownView: MarkdownHost, Notice: class {} };
     },
-    window: { setTimeout, clearTimeout, localStorage: { getItem: (key: string) => oldDevice.get(key) ?? null, removeItem: (key: string) => oldDevice.delete(key) } }
+    window: { setInterval: () => 0, clearInterval: () => {}, setTimeout, clearTimeout, localStorage: { getItem: (key: string) => oldDevice.get(key) ?? null, removeItem: (key: string) => oldDevice.delete(key) } }
   });
   const Plugin = module.exports.default as typeof EdgePlugin;
   const app = {
     vault: { getName: () => 'Test vault', configDir: '.obsidian' },
     loadLocalStorage: (key: string): unknown => device.get(key) ?? null,
     saveLocalStorage: (key: string, value: unknown) => { if (value === null) device.delete(key); else device.set(key, value); },
-    workspace: { getLeavesOfType: () => [], getActiveFile: () => null, getActiveViewOfType: () => null, on: () => ({}) }
+    workspace: {
+      getLeavesOfType: () => [], getActiveFile: () => activeFile, getActiveViewOfType: () => null,
+      on: (event: string, handler: (...args: unknown[]) => void) => { workspaceEvents.set(event, handler); return {}; }
+    }
   } as unknown as App;
   const plugin = new Plugin(app, { id: 'pi-edge' } as PluginManifest);
   await plugin.onload();
@@ -96,7 +102,13 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     const socket = sockets[[...plugin.sessions.values()].indexOf(session)];
     socket.onmessage?.({ data: JSON.stringify({ type: 'edge.event', sessionId: conversation.id, seq: ++sequence, event }) });
   };
-  return { plugin, tab, device, oldDevice, sockets, emit, saved: () => saved, updates: () => updates };
+  const openFile = (file: TFile, firstEvent: 'active-leaf-change' | 'file-open' = 'active-leaf-change') => {
+    activeFile = file;
+    const leaf = { view: new MarkdownHost(file) };
+    workspaceEvents.get(firstEvent)?.(firstEvent === 'file-open' ? file : leaf);
+    workspaceEvents.get(firstEvent === 'file-open' ? 'active-leaf-change' : 'file-open')?.(firstEvent === 'file-open' ? leaf : file);
+  };
+  return { plugin, tab, device, oldDevice, sockets, emit, openFile, workspaceEvents, saved: () => saved, updates: () => updates };
 }
 function rows(tab: PluginSettingTab): SettingDefinition[] {
   return tab.getSettingDefinitions().flatMap(item => 'items' in item ? item.items || [] : []).filter((item): item is SettingDefinition => !('type' in item));
@@ -216,6 +228,72 @@ test('plugin prevents a ninth active chat without changing the current conversat
   assert.equal(plugin.settings.active, active);
 });
 
+test('opening another note starts independent context while preserving earlier chats, drafts and running tasks', async t => {
+  const { plugin, openFile, sockets, emit, workspaceEvents } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'projects/A.md' } as TFile);
+  const a = plugin.activeConversation(); const sessionA = plugin.sessionFor(a);
+  sessionA.send('Work on A', []);
+  sessionA.draft = { text: 'Follow-up for A', attachments: [{ id: 'A', name: 'A.md', text: 'Only for A' }] };
+  openFile({ path: 'projects/B.md' } as TFile, 'file-open');
+  const b = plugin.activeConversation(); const sessionB = plugin.sessionFor(b);
+  assert.notEqual(b.id, a.id);
+  assert.equal(b.notePath, 'projects/B.md');
+  assert.equal(b.messages.length, 0);
+  assert.equal(b.bridgeSessionId, undefined);
+  assert.equal(sessionB.draft.text, ''); assert.equal(sessionB.draft.attachments.length, 0);
+  assert.equal(sessionA.busy, true); assert.equal(sockets[0].closes, 0);
+  assert.equal(sessionA.draft.attachments[0].text, 'Only for A');
+  emit({ kind: 'message', id: 'reply-b', role: 'assistant', text: 'Only B', final: true });
+  assert.ok(!a.messages.some(message => message.text === 'Only B'));
+  // Focusing the same note or the sidebar must not reset the composer again.
+  openFile({ path: 'projects/B.md' } as TFile);
+  workspaceEvents.get('active-leaf-change')?.({ view: {} });
+  workspaceEvents.get('file-open')?.(null);
+  assert.equal(plugin.activeConversation().id, b.id);
+  // History remains an explicit way to resume A, even while B is open.
+  plugin.chooseConversation(a.id);
+  assert.equal(plugin.activeConversation().id, a.id);
+  openFile({ path: 'projects/B.md' } as TFile);
+  assert.equal(plugin.activeConversation().id, a.id);
+});
+
+test('browsing notes releases unused connections but keeps drafts and completed history', async t => {
+  const { plugin, openFile, sockets } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  for (let i = 0; i < 12; i++) {
+    openFile({ path: `notes/${i}.md` } as TFile);
+    plugin.sessionFor(plugin.activeConversation());
+    assert.equal(plugin.sessions.size, 1);
+  }
+  assert.ok(sockets.slice(0, -1).every(socket => socket.closes === 1));
+  const draftChat = plugin.activeConversation(); const draftSession = plugin.sessionFor(draftChat);
+  draftSession.draft = { text: '', attachments: [{ id: 'image', name: 'image.png', data: 'aGVsbG8=', mimeType: 'image/png' }] };
+  openFile({ path: 'notes/completed.md' } as TFile);
+  const completed = plugin.activeConversation(); const completedSession = plugin.sessionFor(completed);
+  completed.messages.push({ id: 'done', role: 'assistant', text: 'Finished', final: true });
+  openFile({ path: 'notes/next.md' } as TFile);
+  assert.equal(plugin.sessions.get(draftChat.id), draftSession);
+  assert.equal(plugin.sessions.get(completed.id), completedSession);
+  assert.equal(plugin.lastFile?.path, 'notes/next.md');
+});
+
+test('plugin reload defaults to a new chat for the current file while retaining saved sessions', async t => {
+  const old = { id: 'old-chat', title: 'Old task', notePath: 'Old.md', messages: [{ id: 'old-message', role: 'user', text: 'Old context', final: true }], updated: 1 };
+  const { plugin } = await loadPlugin(true, {
+    settings: { url: 'ws://127.0.0.1:8771', active: old.id, conversations: [old] },
+    activeIds: [old.id], file: { path: 'projects/Current.md' } as TFile
+  });
+  t.after(() => plugin.onunload());
+  const fresh = plugin.activeConversation();
+  assert.notEqual(fresh.id, old.id); assert.equal(fresh.notePath, 'projects/Current.md');
+  assert.equal(fresh.messages.length, 0);
+  plugin.restoreSessions();
+  assert.equal(plugin.sessions.get(old.id)?.conversation.messages[0].text, 'Old context');
+  plugin.chooseConversation(old.id);
+  assert.equal(plugin.activeConversation().id, old.id);
+});
+
 test('reconnecting all chats preserves their drafts and keeps settings for background chats separate', async t => {
   const { plugin, sockets, emit } = await loadPlugin(); t.after(() => plugin.onunload());
   const a = plugin.activeConversation(); const sessionA = plugin.sessionFor(a);
@@ -243,4 +321,52 @@ test('tool detail preference defaults to compact and persists changes through th
   assert.ok(change); change(true);
   await plugin.saveSettings();
   assert.equal((saved() as { showToolDetails: boolean }).showToolDetails, true);
+});
+
+test('automatic idle cleanup releases active slots and retains resumable history', async () => {
+  const { plugin, emit, sockets, device } = await loadPlugin();
+  const conversation = plugin.activeConversation();
+  const session = plugin.sessionFor(conversation);
+  emit({ kind: 'state', busy: false, model: 'test/model', effort: 'off', reasoning: true });
+  // The host socket has not performed the ready handshake yet.
+  session.status = 'ready';
+  conversation.lastActivity = Date.now() - 25 * 60 * 60 * 1000;
+  plugin.expireIdleConversations();
+  assert.equal(plugin.sessions.has(conversation.id), false);
+  assert.ok(plugin.settings.conversations.some(item => item.id === conversation.id));
+  assert.equal(sockets[0].closes, 1);
+  assert.ok(!JSON.stringify(device.get('pi-edge:active-chats')).includes(conversation.id));
+  plugin.chooseConversation(conversation.id);
+  assert.equal(plugin.settings.active, conversation.id);
+  const resumed = plugin.sessionFor(conversation);
+  assert.equal(resumed.conversation.id, conversation.id);
+  plugin.onunload();
+});
+
+test('viewing saved chats preserves both the message time and idle timer', async () => {
+  const { plugin } = await loadPlugin();
+  const conversation = plugin.activeConversation();
+  conversation.updated = 123;
+  conversation.lastActivity = 456;
+  plugin.chooseConversation(conversation.id);
+  assert.equal(conversation.updated, 123);
+  assert.equal(conversation.lastActivity, 456);
+  plugin.onunload();
+});
+
+test('opening a chat automatically releases a confirmed idle connection at the slot limit', async () => {
+  const { plugin, emit } = await loadPlugin();
+  const first = plugin.activeConversation();
+  const idle = plugin.sessionFor(first);
+  emit({ kind: 'state', busy: false, model: 'test/model', effort: 'off', reasoning: true });
+  idle.status = 'ready';
+  for (let i = 1; i < 8; i++) {
+    plugin.newConversation();
+    plugin.sessionFor(plugin.activeConversation()).busy = true;
+  }
+  plugin.newConversation();
+  assert.notEqual(plugin.settings.active, first.id);
+  assert.equal(plugin.sessions.has(first.id), false);
+  assert.ok(plugin.settings.conversations.some(item => item.id === first.id));
+  plugin.onunload();
 });

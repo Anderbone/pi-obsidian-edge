@@ -183,3 +183,35 @@ test('retrying the same text keeps the failed attempt and reconciles the new del
   assert.equal(chat.conversation.messages[1].id, 'retry-delivered');
   assert.equal(chat.conversation.messages[1].delivery, undefined);
 });
+
+test('idle expiry waits for confirmed state, preserves work and drafts, and ignores history refresh', t => {
+  const chat = setup('expired', { updated: Date.now() - 25 * 60 * 60 * 1000 });
+  t.after(() => chat.session.dispose());
+  assert.equal(chat.session.isExpired(), false, 'wait for bridge state before closing');
+  chat.event({ kind: 'state', busy: false, model: 'saved/model', effort: 'off', reasoning: true });
+  chat.event({ kind: 'history', messages: [] });
+  assert.equal(chat.session.isExpired(), true, 'history replay must not reset activity');
+  chat.session.draft.text = 'unsent';
+  assert.equal(chat.session.isExpired(), false);
+  chat.session.draft.text = '';
+  chat.session.draft.attachments = [{ id: 'note', name: 'note', text: 'context' }];
+  assert.equal(chat.session.isExpired(), false);
+  chat.session.draft.attachments = [];
+  chat.event({ kind: 'state', busy: true, model: 'saved/model', effort: 'off', reasoning: true });
+  assert.equal(chat.session.isExpired(), false);
+  chat.event({ kind: 'run.finished' });
+  assert.equal(chat.session.isExpired(), false, 'completion starts a fresh idle window');
+  const lastActivity = chat.conversation.lastActivity!;
+  assert.equal(chat.session.isExpired(lastActivity + 24 * 60 * 60 * 1000 - 1), false);
+  assert.equal(chat.session.isExpired(lastActivity + 24 * 60 * 60 * 1000), true);
+});
+
+test('history refresh and task completion preserve last message time', t => {
+  const chat = setup('message-time', { updated: 123 });
+  t.after(() => chat.session.dispose());
+  chat.event({ kind: 'history', messages: [] });
+  chat.event({ kind: 'run.finished' });
+  assert.equal(chat.conversation.updated, 123);
+  chat.event({ kind: 'message', id: 'reply', role: 'assistant', text: 'Answer', final: true });
+  assert.ok(chat.conversation.updated > 123);
+});

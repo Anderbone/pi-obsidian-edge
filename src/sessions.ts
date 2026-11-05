@@ -7,6 +7,7 @@ import { toolMessage, mergeToolHistory } from './tools';
 import type { ClientEvent, ModelEntry, PermissionId, PermissionMode } from '../shared/protocol';
 
 export const MAX_ACTIVE_CHATS = 8;
+export const ACTIVE_IDLE_MS = 24 * 60 * 60 * 1000;
 export interface ComposerDraft { text: string; attachments: Attachment[]; }
 interface SessionOptions {
   pairing: Pairing; permissions: PermissionId; model: string; effort: string;
@@ -33,11 +34,13 @@ export class ConversationSession {
   permissionModes: PermissionMode[] = [];
   private steeringSupported = false;
   private configured = false;
+  private stateKnown = false;
   private disposed = false;
   private reconcilingError = false;
   private configure = false;
 
   constructor(readonly conversation: Conversation, private options: SessionOptions) {
+    conversation.lastActivity ??= conversation.updated;
     this.configure = !conversation.messages.length && !conversation.model;
     this.permissions = conversation.permissions || options.permissions;
     this.model = conversation.model || '';
@@ -45,6 +48,7 @@ export class ConversationSession {
     this.client = new EdgeClient(options.pairing, conversation.id, {
       status: (state, detail) => {
         this.status = state; this.detail = detail;
+        if (state !== 'ready') this.stateKnown = false;
         options.status(state); this.notify();
       },
       event: event => this.handle(event)
@@ -105,6 +109,8 @@ export class ConversationSession {
     } else if (event.kind === 'run.finished') {
       this.busy = false; this.activity = ''; changed = true;
     } else if (event.kind === 'state') {
+      this.stateKnown = true;
+      if (this.busy && !event.busy) this.conversation.lastActivity = Date.now();
       this.reconcilingError = false;
       this.busy = event.busy; this.model = event.model; this.effort = event.effort;
       if (!this.configured) {
@@ -139,8 +145,9 @@ export class ConversationSession {
     if (changed) {
       const first = this.conversation.messages.find(message => message.role === 'user');
       if (first) this.conversation.title = userMessage(first.text).text.slice(0, 70);
-      this.conversation.updated = Date.now();
+      if (event.kind === 'message') this.conversation.updated = Date.now();
     }
+    if ((changed && event.kind !== 'history') || event.kind === 'run.started') this.conversation.lastActivity = Date.now();
     this.options.changed(); this.notify(event);
   }
   send(message: string, images: { type: 'image'; data: string; mimeType: string }[]): void {
@@ -150,9 +157,15 @@ export class ConversationSession {
     const requestId = this.client.send('prompt', { message: prompt, streamingBehavior: 'steer', ...(images.length ? { images } : {}) });
     this.conversation.messages.push({ id: `pending:${requestId}`, requestId, delivery: 'sending', role: 'user', text: prompt, final: true,
       ...(images.length ? { images: images.map(image => ({ ...image })) } : {}) });
-    this.conversation.updated = Date.now();
+    this.conversation.updated = this.conversation.lastActivity = Date.now();
     this.busy = true; this.error = ''; this.activity = '';
     this.options.changed(); this.notify({ kind: 'history', messages: this.conversation.messages }); this.notify();
+  }
+  canRelease(): boolean {
+    return this.status === 'ready' && this.stateKnown && !this.busy && !this.draft.text && !this.draft.attachments.length;
+  }
+  isExpired(now = Date.now()): boolean {
+    return this.canRelease() && now - (this.conversation.lastActivity ?? this.conversation.updated) >= ACTIVE_IDLE_MS;
   }
   stop(): void { if (this.steeringSupported) this.client.send('clear_queue'); this.client.send('abort'); }
   selectModel(id: string): void {

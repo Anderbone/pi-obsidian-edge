@@ -15,7 +15,7 @@ The computer must remain awake and reachable. Its Obsidian app does not need to 
 ## Start the computer bridge
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.8/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.9/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 The standalone package bundles its dependencies; Git and build tools are not needed. If you already downloaded `pi-edge-bridge.tgz`, use `npx --yes --package ./pi-edge-bridge.tgz pi-edge-bridge --cwd "/path/to/your/vault"`. Source builds remain available in the [development guide](development.md).
@@ -88,7 +88,7 @@ Choose **Read only**, **Read & write**, or **Full access** directly in the mobil
 The computer can impose an optional maximum using `--tools`. For example, this ceiling permits note edits but prevents the phone from enabling shell access:
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.8/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.9/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
 ```
 
 Without an explicit `--tools` ceiling, all built-in tools are available and the phone can switch between all three permission presets. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled. Full Pi extension interactions are not supported.
@@ -105,13 +105,13 @@ Links first use the original vault path. If the file has moved, Pi Edge looks fo
 
 Use **＋** to start another independent chat. For example, attach note A and start a task, open note B, swipe back to Pi Edge, choose **＋**, and attach note B. Both tasks run with separate Pi contexts. Switching the open note alone leaves the selected chat unchanged.
 
-The **Active chats** button beside History shows the number of live chats and highlights while any task is running. Open it to see each chat's source note and status, switch chats, stop a task, or end an idle chat. Ending a chat preserves its saved history. The bridge supports up to **eight active chats** in total, including other connected devices; end an idle chat before opening another. Each chat keeps its model, reasoning effort and permissions. Draft text and unsent attachments survive chat switches in memory; they are not saved across a plugin/app restart. Contexts are separate, while all agents work in the same computer vault.
+The **History** button opens one searchable chat list. Running chats appear first with a **Stop** button, followed by chats ordered by their last message time. Each row shows its source note and date/time; select any chat to continue its saved context. Viewing a chat or loading history does not change its last message time or idle timer. Idle connections automatically close after 24 hours without activity, checked once a minute while Obsidian runs; running tasks and unsent drafts stay active. The plugin automatically releases an idle connection when it needs another slot. If all eight connections are busy or protected, wait for a task to finish or stop one. Each chat keeps its model, reasoning effort and permissions. Drafts survive chat switches in memory but not an app/plugin restart. Contexts are separate, while all agents work in the same computer vault.
 
 Closing the panel leaves active chats connected and continues saving background replies. Active chat IDs are stored only on this device, and reopening the panel reconnects them after a plugin reload. History lists saved conversations; opening an archived conversation makes it active again.
 
 The bridge fixes the working directory and any explicit tool ceiling on the computer. Clients select a permission preset within that ceiling; they cannot override arbitrary launch arguments or the working directory. Each conversation has an application-owned UUID. The Pi adapter uses that UUID for a saved Pi session.
 
-A dropped socket leaves running work alive. Once work finishes, an idle disconnected process is retained for two minutes. A reconnect uses the same process and replays bounded, normalized events. After the retention window, the next connection starts Pi with the same saved session ID. Pi history is reloaded into the panel. These retention changes and immediate **End chat** cleanup require the updated bridge; older bridges still support concurrent connected chats, but expire disconnected processes after two minutes and release ended chats after that timeout. Restart a source bridge after updating when its current tasks have finished. A computer or bridge restart can interrupt active work; inspect results before repeating an action.
+A dropped socket leaves running work alive. Once work finishes, an idle disconnected process is retained for two minutes. A reconnect uses the same process and replays bounded, normalized events. After the retention window, the next connection starts Pi with the same saved session ID. Pi history is reloaded into the panel. These retention changes and immediate idle connection cleanup require the updated bridge; older bridges still support concurrent connected chats, but expire disconnected processes after two minutes and release ended chats after that timeout. Restart a source bridge after updating when its current tasks have finished. A computer or bridge restart can interrupt active work; inspect results before repeating an action.
 
 Messages queued before readiness are sent once the bridge is ready. Already-sent prompts are not blindly replayed after a disconnect. The bridge deduplicates command IDs while a session process remains alive; it does not promise durable exactly-once execution across a server restart.
 

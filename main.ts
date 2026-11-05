@@ -11,6 +11,12 @@ import { isPermissionId, isRecord, type ClientEvent, type ModelEntry, type Permi
 import { noteCandidates, userMessage } from './src/references';
 
 const VIEW = 'pi-edge-chat';
+function lastActivityLabel(conversation: Conversation): string {
+  const time = conversation.updated;
+  return Number.isFinite(time) ? 'Last message: ' + new Date(time).toLocaleString(undefined, {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+  }) : 'Last message: unknown';
+}
 const PERMISSIONS: PermissionMode[] = [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }];
 interface Settings extends HistoryLimits { showToolDetails: boolean; permissions: PermissionId; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
 const DEFAULTS: Settings = { ...DEFAULT_HISTORY_LIMITS, showToolDetails: false, permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
@@ -42,64 +48,54 @@ class MovedNotePicker extends FuzzySuggestModal<TFile> {
   getItemText(file: TFile): string { return file.path; }
   onChooseItem(file: TFile): void { void this.plugin.openNote(file.path); }
 }
-class HistoryPicker extends FuzzySuggestModal<Conversation> {
-  constructor(private plugin: EdgePlugin) { super(plugin.app); this.setPlaceholder('Open a conversation'); }
-  getItems(): Conversation[] { return [...this.plugin.settings.conversations].sort((a, b) => b.updated - a.updated); }
-  getItemText(item: Conversation): string { return (item.title || 'New conversation') + ' ' + this.references(item).map(ref => ref.name).join(' '); }
-  private references(item: Conversation) {
-    return [...new Map(item.messages.filter(message => message.role === 'user').flatMap(message => userMessage(message.text).references).map(ref => [ref.path, ref])).values()];
-  }
-  renderSuggestion(value: { item: Conversation }, el: HTMLElement): void {
-    el.createDiv({ text: value.item.title || 'New conversation' });
-    const links = el.createDiv({ cls: 'edge-message-references' });
-    for (const ref of this.references(value.item)) {
-      const link = links.createEl('a', { text: ref.name, cls: 'internal-link edge-note-reference', href: ref.path });
-      link.addEventListener('click', event => {
-        event.preventDefault(); event.stopPropagation(); this.close();
-        void this.plugin.openNote(ref.path);
-      });
-    }
-  }
-  onChooseItem(item: Conversation): void { this.plugin.chooseConversation(item.id); }
-}
-class ActiveChatsModal extends Modal {
-  private signature = '';
+class ChatHistoryModal extends Modal {
+  private query = '';
+  private rows!: HTMLElement;
   constructor(private plugin: EdgePlugin) { super(plugin.app); }
   private refresh = () => {
-    const sessions = [...this.plugin.sessions.values()];
-    const signature = JSON.stringify(sessions.map(session => [session.conversation.id, session.conversation.title,
-      session.conversation.notePath, session.busy, session.status, session.error, this.plugin.settings.active]));
-    if (signature === this.signature) return;
-    this.signature = signature; this.contentEl.empty();
-    for (const session of sessions) {
-      const conversation = session.conversation;
-      const status = session.status === 'ready' ? session.busy ? 'Running' : 'Idle' : session.detail;
-      const description = [conversation.notePath, status, conversation.id === this.plugin.settings.active ? 'Current chat' : '', session.error].filter(Boolean).join(' · ');
-      const row = new Setting(this.contentEl).setName(conversation.title || 'New conversation').setDesc(description);
+    this.rows.empty();
+    const query = this.query.toLocaleLowerCase();
+    const conversations = [...this.plugin.settings.conversations].filter(item =>
+      item.messages.length || this.plugin.sessions.has(item.id)).sort((a, b) =>
+      Number(!!this.plugin.sessions.get(b.id)?.busy) - Number(!!this.plugin.sessions.get(a.id)?.busy) || b.updated - a.updated);
+    for (const conversation of conversations) {
+      if (![conversation.title, conversation.notePath].join(' ').toLocaleLowerCase().includes(query)) continue;
+      const session = this.plugin.sessions.get(conversation.id);
+      const description = [session?.busy ? 'Running' : '', lastActivityLabel(conversation), conversation.notePath,
+        conversation.id === this.plugin.settings.active ? 'Current chat' : ''].filter(Boolean).join(' · ');
+      const row = new Setting(this.rows).setName(conversation.title || 'New conversation').setDesc(description);
       row.settingEl.addClass('edge-active-chat-row');
       row.settingEl.tabIndex = 0;
       row.settingEl.setAttribute('role', 'link');
-      row.settingEl.setAttribute('aria-label', `Open ${conversation.title || 'New conversation'} · ${status}`);
-      const dot = row.nameEl.createSpan({ cls: 'edge-active-chat-dot' });
-      dot.dataset.running = String(session.busy);
-      dot.setAttribute('aria-hidden', 'true');
-      row.nameEl.prepend(dot);
+      row.settingEl.setAttribute('aria-label', `Open ${conversation.title || 'New conversation'}`);
       const open = () => { this.close(); this.plugin.chooseConversation(conversation.id); };
       row.settingEl.addEventListener('click', open);
       row.settingEl.addEventListener('keydown', event => {
-        if (event.target === row.settingEl && (event.key === 'Enter' || event.key === ' ')) {
-          event.preventDefault(); open();
-        }
+        if (event.target === row.settingEl && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); }
       });
-      // Stop/End actions must not also activate the containing chat row.
+      const references = [...new Map(conversation.messages.filter(message => message.role === 'user')
+        .flatMap(message => userMessage(message.text).references).map(ref => [ref.path, ref])).values()];
+      if (references.length) {
+        const links = row.descEl.createDiv({ cls: 'edge-message-references' });
+        for (const ref of references) {
+          const link = links.createEl('a', { text: ref.name, cls: 'internal-link edge-note-reference', href: ref.path });
+          link.addEventListener('click', event => {
+            event.preventDefault(); event.stopPropagation(); this.close(); void this.plugin.openNote(ref.path);
+          });
+        }
+      }
       row.controlEl.addEventListener('click', event => event.stopPropagation());
-      if (session.busy) row.addButton(button => button.setButtonText('Stop').onClick(() => session.stop()));
-      else row.addButton(button => button.setButtonText('End chat').onClick(() => this.plugin.endConversation(conversation.id)));
+      if (session?.busy) row.addButton(button => button.setButtonText('Stop').onClick(() => session.stop()));
     }
-    new Setting(this.contentEl).addButton(button => button.setButtonText('New chat').setDisabled(sessions.length >= MAX_ACTIVE_CHATS)
-      .onClick(() => { this.close(); this.plugin.newConversation(); }));
+    if (!this.rows.childElementCount) this.rows.createEl('p', { text: 'No chats found.' });
   };
-  onOpen(): void { this.titleEl.setText('Active chats'); this.refresh(); this.plugin.sessionListeners.add(this.refresh); }
+  onOpen(): void {
+    this.titleEl.setText('Chat history');
+    const search = this.contentEl.createEl('input', { type: 'search', attr: { placeholder: 'Search chats', 'aria-label': 'Search chats' } });
+    search.addEventListener('input', () => { this.query = search.value; this.refresh(); });
+    this.rows = this.contentEl.createDiv();
+    this.refresh(); this.plugin.sessionListeners.add(this.refresh);
+  }
   onClose(): void { this.plugin.sessionListeners.delete(this.refresh); }
 }
 class EdgeSettings extends PluginSettingTab {
@@ -190,7 +186,7 @@ function settingsDefinitions(plugin: EdgePlugin): SettingsGroup[] {
       plugin.settings[key] = limit; await plugin.saveSettings(); new Notice('History limit saved.');
     })); });
   }
-  row('Clear local history', 'Removes archived chats. Active chats stay available until you end them.', setting => {
+  row('Clear local history', 'Removes saved chats that have no current connection. Connected chats are kept.', setting => {
     setting.addButton(button => button.setButtonText('Clear history').onClick(() => { void plugin.clearHistory(); }));
   });
   return groups;
@@ -244,7 +240,7 @@ class EdgeView extends ItemView {
       send: (text, attachments) => this.send(text, attachments), stop: () => this.session?.stop(),
       pair: () => new PairModal(this.plugin).open(), settings: () => this.plugin.openSettings(),
       fresh: () => this.plugin.newConversation(),
-      history: () => new HistoryPicker(this.plugin).open(), active: () => new ActiveChatsModal(this.plugin).open(),
+      history: () => new ChatHistoryModal(this.plugin).open(),
       attach: kind => this.attach(kind),
       model: id => this.plugin.selectModel(id),
       effort: level => this.plugin.setEffort(level),
@@ -327,6 +323,7 @@ export default class EdgePlugin extends Plugin {
   sessions = new Map<string, ConversationSession>();
   sessionListeners = new Set<() => void>();
   private restoredSessions = false;
+  private dormantSessionIds = new Set<string>();
   private savedSessionIds: string[] = [];
   private saveTimer?: number;
   private scheduleSave(): void {
@@ -341,7 +338,8 @@ export default class EdgePlugin extends Plugin {
   sessionFor(conversation: Conversation): ConversationSession {
     const existing = this.sessions.get(conversation.id);
     if (existing) return existing;
-    if (this.sessions.size >= MAX_ACTIVE_CHATS) throw new Error('Up to eight chats can stay active. End an idle chat in Active chats first.');
+    this.releaseIdleSlot();
+    if (this.sessions.size >= MAX_ACTIVE_CHATS) throw new Error('All chat connections are busy. Wait for a task to finish, or stop one in chat history.');
     const pairing = this.pairing();
     if (!pairing) throw new Error('Pair your computer before starting a chat.');
     const session = new ConversationSession(conversation, {
@@ -354,7 +352,7 @@ export default class EdgePlugin extends Plugin {
       status: state => { this.recordStatus(state); for (const listener of this.sessionListeners) listener(); }
     });
     this.sessions.set(conversation.id, session); this.rememberSessions();
-    this.scheduleSave(); session.connect(); return session;
+    this.scheduleSave(); if (!this.dormantSessionIds.has(conversation.id)) session.connect(); return session;
   }
   restoreSessions(): void {
     if (this.restoredSessions) return;
@@ -365,17 +363,37 @@ export default class EdgePlugin extends Plugin {
       if (conversation) this.sessionFor(conversation);
     }
   }
+  private releaseIdleSlot(): void {
+    if (this.sessions.size < MAX_ACTIVE_CHATS) return;
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).captureDraft();
+    const idle = [...this.sessions.values()].filter(session => session.canRelease()).sort((a, b) =>
+      (a.conversation.lastActivity ?? a.conversation.updated) - (b.conversation.lastActivity ?? b.conversation.updated))[0];
+    if (idle) { idle.dispose(true); this.sessions.delete(idle.conversation.id); this.rememberSessions(); }
+  }
   chooseConversation(id: string): void {
     if (this.pairing()) this.restoreSessions();
+    if (!this.sessions.has(id)) this.releaseIdleSlot();
     if (!this.sessions.has(id) && this.pairing() && this.sessions.size >= MAX_ACTIVE_CHATS) {
-      new Notice('End an idle chat in active chats before opening another one.'); return;
+      new Notice('All chat connections are busy. Wait for a task to finish, or stop one in chat history.'); return;
     }
     this.settings.active = id; this.reloadViews(); void this.saveSettings();
   }
   newConversation(): void {
     if (this.pairing()) this.restoreSessions();
-    if (this.sessions.size >= MAX_ACTIVE_CHATS) { new Notice('End an idle chat in active chats before starting another one.'); return; }
+    this.releaseIdleSlot();
+    if (this.sessions.size >= MAX_ACTIVE_CHATS) { new Notice('All chat connections are busy. Wait for a task to finish, or stop one in chat history.'); return; }
     this.settings.active = ''; this.activeConversation(); this.reloadViews(); void this.saveSettings();
+  }
+  expireIdleConversations(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).captureDraft();
+    const expired = [...this.sessions.values()].filter(session => session.isExpired());
+    if (!expired.length) return;
+    for (const session of expired) { this.dormantSessionIds.add(session.conversation.id); session.dispose(true); this.sessions.delete(session.conversation.id); }
+    this.rememberSessions();
+    if (expired.some(session => session.conversation.id === this.settings.active)) {
+      this.reloadViews();
+    }
+    void this.saveSettings();
   }
   endConversation(id: string): void {
     const session = this.sessions.get(id); if (!session || session.busy) return;
@@ -438,6 +456,21 @@ export default class EdgePlugin extends Plugin {
     if (changed) for (const listener of this.catalogListeners) listener();
   }
   lastFile?: TFile; lastMarkdown?: MarkdownView;
+  private followFile(file: TFile): void {
+    const previousPath = this.lastFile?.path;
+    this.lastFile = file;
+    if (previousPath === file.path) return;
+    // Merely browsing notes should not fill the active-chat slots with unused
+    // connections. Keep any chat that has messages, work, or a composer draft.
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).captureDraft();
+    const previous = this.sessions.get(this.settings.active);
+    if (previous && !previous.busy && !previous.conversation.messages.length &&
+      !previous.draft.text && !previous.draft.attachments.length) {
+      previous.dispose(true); this.sessions.delete(previous.conversation.id); this.rememberSessions();
+    }
+    this.settings.active = '';
+    this.reloadViews(); this.scheduleSave();
+  }
   private deviceToken?: DeviceToken;
   token(): string { return this.deviceToken?.get() || ''; }
   setToken(token: string): void { this.deviceToken!.set(token); this.invalidateConnectionTest(); }
@@ -472,21 +505,31 @@ export default class EdgePlugin extends Plugin {
     this.deviceToken.migrate(window.localStorage, `pi-edge:${this.app.vault.getName()}:${this.app.vault.configDir}:token`);
     const saved: unknown = await this.loadData();
     this.settings = { ...DEFAULTS, ...(isRecord(saved) ? saved : {}) };
+    // Opening the sidebar after a reload starts fresh; saved chats remain
+    // available through History and device-local background sessions.
+    this.settings.active = '';
     Object.assign(this.settings, historyLimits(this.settings));
     const sessionIds: unknown = this.app.loadLocalStorage('pi-edge:active-chats');
     this.savedSessionIds = Array.isArray(sessionIds) ? sessionIds.filter((id): id is string => typeof id === 'string') : [];
     this.register(() => this.invalidateConnectionTest());
+    const idleTimer = window.setInterval(() => this.expireIdleConversations(), 60_000);
+    this.register(() => window.clearInterval(idleTimer));
     this.lastFile = this.app.workspace.getActiveFile() || undefined;
     this.lastMarkdown = this.app.workspace.getActiveViewOfType(MarkdownView) || undefined;
     this.registerView(VIEW, leaf => new EdgeView(leaf, this));
     this.addRibbonIcon('messages-square', 'Pi Edge', () => { void this.openPanel(); });
     this.addCommand({ id: 'open', name: 'Open chat', callback: () => { void this.openPanel(); } });
     this.addCommand({ id: 'new-chat', name: 'New chat', callback: () => { this.newConversation(); void this.openPanel(); } });
-    this.addCommand({ id: 'active-chats', name: 'Active chats', callback: () => { void this.openPanel().then(() => new ActiveChatsModal(this).open()); } });
+    this.addCommand({ id: 'active-chats', name: 'Chat history', callback: () => { void this.openPanel().then(() => new ChatHistoryModal(this).open()); } });
     this.addCommand({ id: 'pair', name: 'Pair computer', callback: () => new PairModal(this).open() });
     this.addSettingTab(new EdgeSettings(this));
-    this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => { if (leaf?.view instanceof MarkdownView) { this.lastMarkdown = leaf.view; this.lastFile = leaf.view.file || undefined; } }));
-    this.registerEvent(this.app.workspace.on('file-open', file => { if (file) this.lastFile = file; }));
+    this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => {
+      if (leaf?.view instanceof MarkdownView) {
+        this.lastMarkdown = leaf.view;
+        if (leaf.view.file) this.followFile(leaf.view.file);
+      }
+    }));
+    this.registerEvent(this.app.workspace.on('file-open', file => { if (file) this.followFile(file); }));
     this.registerObsidianProtocolHandler('pi-edge', parameters => { if (parameters.code) new PairModal(this, parameters.code).open(); else void this.openPanel(); });
   }
   onunload(): void {
