@@ -35,7 +35,7 @@ You need a computer to run Pi, plus Obsidian on the phone or desktop where you w
 Open a terminal (Terminal on macOS/Linux, or PowerShell on Windows). Copy the command below, replace `/path/to/your/vault` with the full path to your Obsidian vault folder **on the computer**, and run it. A vault is the folder containing your notes. Keep the quotation marks, especially if the path contains spaces.
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.9/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.10/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 For example, a vault path might be `/Users/alex/Documents/My Vault` on macOS or `C:\Users\Alex\Documents\My Vault` on Windows. In desktop Obsidian, you can right-click a note and choose **Show in system explorer** to help find your vault folder.

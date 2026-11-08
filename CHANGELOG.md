@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.10
+
+- Show conversations in chat history only after you send a message. Hide unused chats created by opening the panel or browsing notes, including existing empty entries.
+
 ## 0.2.9
 
 - Merge active chats and saved conversations into one searchable History list, with running tasks first, Stop controls, note links, and last message dates. Resume the original context from any saved chat.

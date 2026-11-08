@@ -56,7 +56,7 @@ class ChatHistoryModal extends Modal {
     this.rows.empty();
     const query = this.query.toLocaleLowerCase();
     const conversations = [...this.plugin.settings.conversations].filter(item =>
-      item.messages.length || this.plugin.sessions.has(item.id)).sort((a, b) =>
+      item.messages.some(message => message.role === 'user')).sort((a, b) =>
       Number(!!this.plugin.sessions.get(b.id)?.busy) - Number(!!this.plugin.sessions.get(a.id)?.busy) || b.updated - a.updated);
     for (const conversation of conversations) {
       if (![conversation.title, conversation.notePath].join(' ').toLocaleLowerCase().includes(query)) continue;
