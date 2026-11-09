@@ -1,6 +1,7 @@
 import { Plugin, ItemView, WorkspaceLeaf, PluginSettingTab, Setting, Modal, Notice, MarkdownView,
   MarkdownRenderer, FuzzySuggestModal, TFile, setIcon, requestUrl, requireApiVersion, type SettingDefinitionItem } from 'obsidian';
-import { ConversationSession, MAX_ACTIVE_CHATS } from './src/sessions';
+import { ConversationSession, MAX_ACTIVE_CHATS, ACTIVE_IDLE_MS } from './src/sessions';
+import { chatHistoryState } from './src/chat-history-state';
 import { DeviceToken } from './src/device-token';
 import { parsePairing, validatePairing, type Pairing } from './src/pairing';
 import { ChatPanel, type Attachment } from './src/panel';
@@ -12,14 +13,18 @@ import { noteCandidates, userMessage } from './src/references';
 
 const VIEW = 'pi-edge-chat';
 function lastActivityLabel(conversation: Conversation): string {
-  const time = conversation.updated;
-  return Number.isFinite(time) ? 'Last message: ' + new Date(time).toLocaleString(undefined, {
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
-  }) : 'Last message: unknown';
+  const date = new Date(conversation.updated);
+  if (!Number.isFinite(date.getTime())) return 'Unknown time';
+  const now = new Date();
+  const today = date.toDateString() === now.toDateString();
+  return date.toLocaleString(undefined, {
+    ...(today ? {} : { ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' as const } : {}), month: 'short' as const, day: 'numeric' as const }),
+    hour: '2-digit', minute: '2-digit', hour12: false
+  });
 }
 const PERMISSIONS: PermissionMode[] = [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }];
-interface Settings extends HistoryLimits { showToolDetails: boolean; permissions: PermissionId; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
-const DEFAULTS: Settings = { ...DEFAULT_HISTORY_LIMITS, showToolDetails: false, permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
+interface Settings extends HistoryLimits { autoAttachCurrentNote: boolean; showToolDetails: boolean; permissions: PermissionId; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
+const DEFAULTS: Settings = { ...DEFAULT_HISTORY_LIMITS, autoAttachCurrentNote: false, showToolDetails: false, permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
 
 class PairModal extends Modal {
   constructor(private plugin: EdgePlugin, private initial = '') { super(plugin.app); }
@@ -56,29 +61,44 @@ class ChatHistoryModal extends Modal {
     this.rows.empty();
     const query = this.query.toLocaleLowerCase();
     const conversations = [...this.plugin.settings.conversations].filter(item =>
-      item.messages.some(message => message.role === 'user')).sort((a, b) =>
+      !!item.outbox?.length || item.messages.some(message => message.role === 'user')).sort((a, b) =>
+      Number(this.plugin.sessions.has(b.id)) - Number(this.plugin.sessions.has(a.id)) ||
       Number(!!this.plugin.sessions.get(b.id)?.busy) - Number(!!this.plugin.sessions.get(a.id)?.busy) || b.updated - a.updated);
     for (const conversation of conversations) {
       if (![conversation.title, conversation.notePath].join(' ').toLocaleLowerCase().includes(query)) continue;
       const session = this.plugin.sessions.get(conversation.id);
-      const description = [session?.busy ? 'Running' : '', lastActivityLabel(conversation), conversation.notePath,
+      const state = chatHistoryState(conversation, session);
+      const description = [state.tone === 'attention' ? state.label : '',
         conversation.id === this.plugin.settings.active ? 'Current chat' : ''].filter(Boolean).join(' · ');
-      const row = new Setting(this.rows).setName(conversation.title || 'New conversation').setDesc(description);
+      const row = new Setting(this.rows).setDesc(description);
       row.settingEl.addClass('edge-active-chat-row');
+      row.settingEl.dataset.session = session ? 'open' : 'closed';
+      row.settingEl.dataset.current = String(conversation.id === this.plugin.settings.active);
+      const dot = row.nameEl.createSpan({ cls: 'edge-active-chat-dot', attr: { 'aria-hidden': 'true' } });
+      dot.dataset.state = state.tone;
+      row.nameEl.createSpan({ text: conversation.title || 'New conversation', cls: 'edge-history-title' });
+      const time = row.nameEl.createEl('time', { text: lastActivityLabel(conversation), cls: 'edge-history-time' });
+      if (Number.isFinite(new Date(conversation.updated).getTime())) {
+        time.dateTime = new Date(conversation.updated).toISOString();
+        time.title = new Date(conversation.updated).toLocaleString();
+      }
+      row.settingEl.title = session?.error || state.label;
       row.settingEl.tabIndex = 0;
       row.settingEl.setAttribute('role', 'link');
-      row.settingEl.setAttribute('aria-label', `Open ${conversation.title || 'New conversation'}`);
+      row.settingEl.setAttribute('aria-label', `Open ${conversation.title || 'New conversation'} · ${state.label}`);
       const open = () => { this.close(); this.plugin.chooseConversation(conversation.id); };
       row.settingEl.addEventListener('click', open);
       row.settingEl.addEventListener('keydown', event => {
         if (event.target === row.settingEl && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); }
       });
-      const references = [...new Map(conversation.messages.filter(message => message.role === 'user')
-        .flatMap(message => userMessage(message.text).references).map(ref => [ref.path, ref])).values()];
+      const references = [...new Map([
+        ...(conversation.notePath ? [{ name: conversation.notePath, path: conversation.notePath }] : []),
+        ...conversation.messages.filter(message => message.role === 'user').flatMap(message => userMessage(message.text).references)
+      ].map(ref => [ref.path, ref])).values()];
       if (references.length) {
         const links = row.descEl.createDiv({ cls: 'edge-message-references' });
         for (const ref of references) {
-          const link = links.createEl('a', { text: ref.name, cls: 'internal-link edge-note-reference', href: ref.path });
+          const link = links.createEl('a', { text: ref.path.split('/').pop() || ref.name, cls: 'internal-link edge-note-reference', href: ref.path, attr: { title: ref.path, 'aria-label': ref.path } });
           link.addEventListener('click', event => {
             event.preventDefault(); event.stopPropagation(); this.close(); void this.plugin.openNote(ref.path);
           });
@@ -152,6 +172,11 @@ function settingsDefinitions(plugin: EdgePlugin): SettingsGroup[] {
       plugin.settings.showToolDetails = value; void plugin.saveSettings(); plugin.reloadViews();
     }));
   });
+  row('Auto-attach current note', 'Include the current note with the first message of a new chat. Later messages do not attach it again. Off by default.', setting => {
+    setting.addToggle(toggle => toggle.setValue(plugin.settings.autoAttachCurrentNote).onChange(value => {
+      plugin.settings.autoAttachCurrentNote = value; void plugin.saveSettings(); plugin.reloadViews();
+    }));
+  });
   group('Pi preferences');
   row('Default model', 'Models provided by Pi on your computer.', setting => { setting.addDropdown(dropdown => {
     dropdown.addOption('', 'Computer default');
@@ -221,7 +246,7 @@ class EdgeView extends ItemView {
   getViewType(): string { return VIEW; }
   getDisplayText(): string { return 'Pi Edge'; }
   getIcon(): string { return 'messages-square'; }
-  async onOpen(): Promise<void> { this.render(); }
+  async onOpen(): Promise<void> { this.render(); this.session?.client.resume(); }
   captureDraft(): void {
     if (this.session && this.panel) this.session.draft = this.panel.getDraft();
   }
@@ -251,9 +276,16 @@ class EdgeView extends ItemView {
       markdown: (text, element) => { void MarkdownRenderer.render(this.app, text, element, this.conversation?.notePath || '', this); },
       changed: () => {}
     }, !!pairing);
+    const refreshAutoAttachment = () => this.panel?.setAutoAttachment(
+      this.plugin.settings.autoAttachCurrentNote && !this.conversation?.messages.length && !this.conversation?.outbox?.length
+        ? this.plugin.lastFile?.path : undefined);
+    refreshAutoAttachment();
     this.panel.setToolDetails(this.plugin.settings.showToolDetails);
     this.panel.restore(this.conversation.messages);
     this.panel.setConversation(this.conversation.title, this.conversation.notePath);
+    const previous = this.plugin.previousNoteConversation(this.conversation);
+    if (previous) this.panel.setResumeHint(`Last chat: ${new Date(previous.updated).toLocaleString()}`, () => this.plugin.chooseConversation(previous.id));
+    else if (this.conversation.messages.length) this.panel.setResumeHint(`Continuing chat · ${new Date(this.conversation.updated).toLocaleString()}`);
     if (!pairing) return;
     this.plugin.restoreSessions();
     try { this.session = this.plugin.sessionFor(this.conversation); }
@@ -263,6 +295,7 @@ class EdgeView extends ItemView {
     this.panel.restoreDraft(session.draft);
     this.panel.setOutbox(session.conversation.outbox || [], id => session.dismissOutgoing(id));
     const update = (event?: ClientEvent) => {
+      refreshAutoAttachment();
       this.panel?.setOutbox(session.conversation.outbox || [], id => session.dismissOutgoing(id));
       if (event?.kind === 'error' || event?.type === 'edge.error') this.panel?.error(event.message, session.busy);
       else if (event && event.type !== 'edge.ready') this.panel?.handle(event);
@@ -283,14 +316,20 @@ class EdgeView extends ItemView {
     this.plugin.syncCatalog(session);
     this.plugin.sessionListeners.add(this.updateCount); this.updateCount();
   }
-  private send(text: string, attachments: Attachment[]): void {
+  private async send(text: string, attachments: Attachment[]): Promise<void> {
     if (!this.session) throw new Error('Pair your computer before sending a message.');
+    const session = this.session;
+    if (this.plugin.settings.autoAttachCurrentNote && !session.conversation.messages.length && !session.conversation.outbox?.length && this.plugin.lastFile && !attachments.some(item => item.path === this.plugin.lastFile?.path)) {
+      const note = await this.attach('note');
+      if (this.session !== session) throw new Error('Chat changed. Send your message again.');
+      if (note) attachments = [...attachments, note];
+    }
     const context = attachments.filter(item => item.text).map(item => `Source: ${item.name}\n${item.text}`).join('\n\n');
     const references = attachments.filter(item => item.text).map(item => ({ name: item.name, path: item.path || item.name.replace(/ \(selection\)$/, '') }));
     const message = text + (context ? '\n\n<note-context>\nThe following notes are reference material supplied by the user.\nReferences: ' + JSON.stringify(references) + '\n' + context + '\n</note-context>' : '');
     if (message.length > 150000) throw new Error('The message and notes are too long. Attach a smaller selection.');
     const images = attachments.filter(item => item.data).map(item => ({ type: 'image' as const, data: item.data!, mimeType: item.mimeType! }));
-    this.session.send(message, images);
+    session.send(message, images);
   }
   private async attach(kind: 'note' | 'selection' | 'browse'): Promise<Attachment | undefined> {
     const conversation = this.conversation;
@@ -342,7 +381,7 @@ export default class EdgePlugin extends Plugin {
     const existing = this.sessions.get(conversation.id);
     if (existing) return existing;
     this.releaseIdleSlot();
-    if (this.sessions.size >= MAX_ACTIVE_CHATS) throw new Error('All chat connections are busy. Wait for a task to finish, or stop one in chat history.');
+    if (this.sessions.size >= MAX_ACTIVE_CHATS) throw new Error('All 8 chat connections are occupied (running, reconnecting, or retaining unsent messages). Open chat history to check them.');
     const pairing = this.pairing();
     if (!pairing) throw new Error('Pair your computer before starting a chat.');
     const session = new ConversationSession(conversation, {
@@ -369,23 +408,27 @@ export default class EdgePlugin extends Plugin {
   private releaseIdleSlot(): void {
     if (this.sessions.size < MAX_ACTIVE_CHATS) return;
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).captureDraft();
-    const idle = [...this.sessions.values()].filter(session => session.canRelease()).sort((a, b) =>
+    const idle = [...this.sessions.values()].filter(session => session.canDetach()).sort((a, b) =>
       (a.conversation.lastActivity ?? a.conversation.updated) - (b.conversation.lastActivity ?? b.conversation.updated))[0];
-    if (idle) { idle.dispose(true); this.sessions.delete(idle.conversation.id); this.rememberSessions(); }
+    // Only end a confirmed idle Pi run. Disconnect unknown states without killing work.
+    if (idle) { idle.dispose(idle.canRelease()); this.sessions.delete(idle.conversation.id); this.rememberSessions(); }
   }
   chooseConversation(id: string): void {
     if (this.pairing()) this.restoreSessions();
     if (!this.sessions.has(id)) this.releaseIdleSlot();
     if (!this.sessions.has(id) && this.pairing() && this.sessions.size >= MAX_ACTIVE_CHATS) {
-      new Notice('All chat connections are busy. Wait for a task to finish, or stop one in chat history.'); return;
+      new Notice('All 8 chat connections are occupied (running, reconnecting, or retaining unsent messages). Open chat history to check them.'); return;
     }
     this.settings.active = id; this.reloadViews(); void this.saveSettings();
   }
   newConversation(): void {
     if (this.pairing()) this.restoreSessions();
     this.releaseIdleSlot();
-    if (this.sessions.size >= MAX_ACTIVE_CHATS) { new Notice('All chat connections are busy. Wait for a task to finish, or stop one in chat history.'); return; }
-    this.settings.active = ''; this.activeConversation(); this.reloadViews(); void this.saveSettings();
+    if (this.sessions.size >= MAX_ACTIVE_CHATS) { new Notice('All 8 chat connections are occupied (running, reconnecting, or retaining unsent messages). Open chat history to check them.'); return; }
+    this.settings.active = '';
+    const fresh = this.activeConversation();
+    for (const item of this.settings.conversations) if (item.notePath === fresh.notePath) item.resumePreferred = item.id === fresh.id;
+    this.reloadViews(); void this.saveSettings();
   }
   expireIdleConversations(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).captureDraft();
@@ -467,12 +510,29 @@ export default class EdgePlugin extends Plugin {
     // connections. Keep any chat that has messages, work, or a composer draft.
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).captureDraft();
     const previous = this.sessions.get(this.settings.active);
-    if (previous && !previous.busy && !previous.conversation.messages.length &&
+    if (previous && !previous.busy && !previous.conversation.messages.length && !previous.conversation.outbox?.length &&
       !previous.draft.text && !previous.draft.attachments.length) {
       previous.dispose(true); this.sessions.delete(previous.conversation.id); this.rememberSessions();
     }
-    this.settings.active = '';
+    this.settings.active = this.recentNoteConversation(file.path)?.id || '';
     this.reloadViews(); this.scheduleSave();
+  }
+  private recentNoteConversation(path: string, now = Date.now()): Conversation | undefined {
+    const candidates = this.settings.conversations.filter(item => item.notePath === path)
+      .sort((a, b) => b.updated - a.updated);
+    const protectedChat = candidates.find(item => {
+      const session = this.sessions.get(item.id);
+      return session?.busy || !!session?.draft.text || !!session?.draft.attachments.length || !!item.outbox?.length;
+    });
+    const recent = (item: Conversation) => now - (item.lastActivity ?? item.updated) < ACTIVE_IDLE_MS;
+    // Automatically created empty chats must not hide a recent conversation.
+    return candidates.find(item => item.resumePreferred && recent(item)) || protectedChat ||
+      candidates.find(item => recent(item) && item.messages.some(message => message.role === 'user')) || candidates.find(recent);
+  }
+  previousNoteConversation(current: Conversation): Conversation | undefined {
+    if (!current.notePath || current.messages.length || current.outbox?.length) return;
+    return this.settings.conversations.filter(item => item.id !== current.id && item.notePath === current.notePath && item.messages.length)
+      .sort((a, b) => b.updated - a.updated)[0];
   }
   private deviceToken?: DeviceToken;
   token(): string { return this.deviceToken?.get() || ''; }
@@ -497,6 +557,8 @@ export default class EdgePlugin extends Plugin {
   reloadViews(): void { for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).render(); }
   openSettings(): void { new SettingsModal(this).open(); }
   async openPanel(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+    if (file && file.path !== this.lastFile?.path) this.followFile(file);
     let leaf = this.app.workspace.getLeavesOfType(VIEW)[0];
     if (!leaf) { leaf = this.app.workspace.getRightLeaf(false)!; if (!leaf) leaf = this.app.workspace.getLeaf(true); await leaf.setViewState({ type: VIEW, active: true }); }
     await this.app.workspace.revealLeaf(leaf);
@@ -508,8 +570,7 @@ export default class EdgePlugin extends Plugin {
     this.deviceToken.migrate(window.localStorage, `pi-edge:${this.app.vault.getName()}:${this.app.vault.configDir}:token`);
     const saved: unknown = await this.loadData();
     this.settings = { ...DEFAULTS, ...(isRecord(saved) ? saved : {}) };
-    // Opening the sidebar after a reload starts fresh; saved chats remain
-    // available through History and device-local background sessions.
+    // Select the current note’s recent chat after resolving the active file.
     this.settings.active = '';
     Object.assign(this.settings, historyLimits(this.settings));
     const sessionIds: unknown = this.app.loadLocalStorage('pi-edge:active-chats');
@@ -517,7 +578,14 @@ export default class EdgePlugin extends Plugin {
     this.register(() => this.invalidateConnectionTest());
     const idleTimer = window.setInterval(() => this.expireIdleConversations(), 60_000);
     this.register(() => window.clearInterval(idleTimer));
+    const resumeConnections = () => {
+      if (document.visibilityState === 'hidden') return;
+      for (const session of this.sessions.values()) session.client.resume();
+    };
+    this.registerDomEvent(document, 'visibilitychange', resumeConnections);
+    this.registerDomEvent(window, 'online', resumeConnections);
     this.lastFile = this.app.workspace.getActiveFile() || undefined;
+    if (this.lastFile) this.settings.active = this.recentNoteConversation(this.lastFile.path)?.id || '';
     this.lastMarkdown = this.app.workspace.getActiveViewOfType(MarkdownView) || undefined;
     this.registerView(VIEW, leaf => new EdgeView(leaf, this));
     this.addRibbonIcon('messages-square', 'Pi Edge', () => { void this.openPanel(); });

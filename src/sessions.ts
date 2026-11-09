@@ -87,6 +87,7 @@ export class ConversationSession {
       event: event => this.handle(event)
     }, options.createSocket, this.permissions);
   }
+  get hasKnownState(): boolean { return this.stateKnown; }
   connect(): void { this.client.connect(); }
   private notify(event?: ClientEvent): void {
     if (!this.disposed) for (const listener of this.listeners) listener(event);
@@ -230,6 +231,11 @@ export class ConversationSession {
   dismissOutgoing(id: string): void {
     this.conversation.outbox = this.conversation.outbox!.filter(message => message.id !== id || (message.delivery !== 'failed' && message.delivery !== 'unconfirmed'));
     this.options.changed(); this.notify();
+  }
+  canDetach(): boolean {
+    // Disconnecting preserves the bridge process and saved Pi context. Never
+    // evict a known run, composer draft, or outgoing message to make room.
+    return !this.busy && !this.draft.text && !this.draft.attachments.length && !this.conversation.outbox!.length;
   }
   canRelease(): boolean {
     return this.status === 'ready' && this.stateKnown && !this.busy && !this.draft.text && !this.draft.attachments.length && !this.conversation.outbox!.length;

@@ -372,3 +372,22 @@ test('reconnection reconciles accepted sends while preserving a new send made du
   chat.event({ kind: 'history', requestId: query.id, messages: [{ id: 'u', role: 'user', text: 'Expanded original', final: true }, { id: 'a', role: 'assistant', text: 'Done', final: true }] });
   assert.deepEqual(chat.conversation.outbox?.map(message => message.requestId), [next.id]);
 });
+
+test('unknown connection states can free a local slot without ending Pi, while work stays protected', t => {
+  const chat = setup('detach-slot');
+  t.after(() => chat.session.dispose());
+  assert.equal(chat.session.hasKnownState, false);
+  assert.equal(chat.session.canRelease(), false);
+  assert.equal(chat.session.canDetach(), true);
+  chat.session.draft.text = 'unsent';
+  assert.equal(chat.session.canDetach(), false);
+  chat.session.draft.text = '';
+  chat.session.busy = true;
+  assert.equal(chat.session.canDetach(), false);
+  chat.session.busy = false;
+  chat.conversation.outbox!.push({ id: 'pending', role: 'user', text: 'unsent', final: true, delivery: 'unconfirmed' });
+  assert.equal(chat.session.canDetach(), false);
+  chat.conversation.outbox = [];
+  chat.session.dispose(false);
+  assert.equal(chat.socket.sent.some(command => command.type === 'edge.session.close'), false);
+});

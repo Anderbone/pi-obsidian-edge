@@ -61,6 +61,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     register(): void {}
     registerView(): void {}
     registerEvent(): void {}
+    registerDomEvent(): void {}
     registerObsidianProtocolHandler(): void {}
     addRibbonIcon(): void {}
     addCommand(): void {}
@@ -75,7 +76,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
   }
   const module: { exports: { default?: unknown } } = { exports: {} };
   runInNewContext(code, {
-    module, exports: module.exports, TextEncoder, URL, crypto: globalThis.crypto, WebSocket: SocketHost,
+    module, exports: module.exports, TextEncoder, URL, crypto: globalThis.crypto, WebSocket: SocketHost, document: { visibilityState: 'visible' },
     require: (name: string) => {
       assert.equal(name, 'obsidian');
       return { Setting: SettingHost, requireApiVersion: () => modernSettings, Plugin: PluginHost, PluginSettingTab: SettingTabHost, ItemView: class {}, Modal: class {}, FuzzySuggestModal: class {}, MarkdownView: MarkdownHost, Notice: class {} };
@@ -221,7 +222,7 @@ test('plugin keeps background sessions alive, protects their history and restore
 
 test('plugin prevents a ninth active chat without changing the current conversation', async t => {
   const { plugin, sockets } = await loadPlugin(); t.after(() => plugin.onunload());
-  for (let i = 0; i < 8; i++) { plugin.newConversation(); plugin.sessionFor(plugin.activeConversation()); }
+  for (let i = 0; i < 8; i++) { plugin.newConversation(); plugin.sessionFor(plugin.activeConversation()).busy = true; }
   const active = plugin.settings.active;
   plugin.newConversation();
   assert.equal(plugin.sessions.size, 8); assert.equal(sockets.length, 8);
@@ -369,4 +370,119 @@ test('opening a chat automatically releases a confirmed idle connection at the s
   assert.equal(plugin.sessions.has(first.id), false);
   assert.ok(plugin.settings.conversations.some(item => item.id === first.id));
   plugin.onunload();
+});
+
+
+test('returning to a note resumes recent history without refreshing activity', async t => {
+  const { plugin, openFile } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'A.md' } as TFile);
+  const a = plugin.activeConversation();
+  a.updated = a.lastActivity = Date.now() - 60_000;
+  a.messages.push({ id: 'a', role: 'user', text: 'Hello', final: true });
+  const activity = a.lastActivity;
+  openFile({ path: 'B.md' } as TFile);
+  openFile({ path: 'A.md' } as TFile);
+  assert.equal(plugin.activeConversation().id, a.id);
+  assert.equal(a.lastActivity, activity);
+  a.updated = a.lastActivity = Date.now() - 24 * 60 * 60 * 1000;
+  openFile({ path: 'B.md' } as TFile);
+  openFile({ path: 'A.md' } as TFile);
+  const fresh = plugin.activeConversation();
+  assert.notEqual(fresh.id, a.id);
+  assert.equal(plugin.previousNoteConversation(fresh)?.id, a.id);
+  plugin.chooseConversation(a.id);
+  assert.equal(plugin.activeConversation().id, a.id);
+});
+
+test('running work and drafts survive the resume window, while explicit new chat takes priority', async t => {
+  const { plugin, openFile } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'A.md' } as TFile);
+  const a = plugin.activeConversation();
+  const session = plugin.sessionFor(a);
+  a.updated = a.lastActivity = Date.now() - 25 * 60 * 60 * 1000;
+  session.busy = true;
+  openFile({ path: 'B.md' } as TFile);
+  openFile({ path: 'A.md' } as TFile);
+  assert.equal(plugin.activeConversation().id, a.id);
+  session.busy = false;
+  session.draft.text = 'Unsent';
+  openFile({ path: 'B.md' } as TFile);
+  openFile({ path: 'A.md' } as TFile);
+  assert.equal(plugin.activeConversation().id, a.id);
+  plugin.newConversation();
+  const fresh = plugin.activeConversation();
+  openFile({ path: 'B.md' } as TFile);
+  openFile({ path: 'A.md' } as TFile);
+  assert.equal(plugin.activeConversation().id, fresh.id);
+  assert.equal(session.draft.text, 'Unsent');
+});
+
+
+test('reloading the plugin restores recent chat for the current file', async t => {
+  const recent = { id: 'recent', title: 'Recent', notePath: 'A.md', messages: [], updated: Date.now() - 1000 };
+  const { plugin } = await loadPlugin(true, { settings: { conversations: [recent] }, activeIds: [], file: { path: 'A.md' } as TFile });
+  t.after(() => plugin.onunload());
+  assert.equal(plugin.activeConversation().id, recent.id);
+});
+
+
+test('unused connections yield a slot instead of reporting every session busy', async t => {
+  const { plugin, sockets } = await loadPlugin(); t.after(() => plugin.onunload());
+  for (let i = 0; i < 8; i++) { plugin.newConversation(); plugin.sessionFor(plugin.activeConversation()); }
+  plugin.newConversation();
+  plugin.sessionFor(plugin.activeConversation());
+  assert.equal(plugin.sessions.size, 8);
+  assert.equal(sockets.length, 9);
+  assert.equal(sockets[0].closes, 1);
+});
+
+test('restoring eight disconnected chats still allows the current note to open', async t => {
+  const conversations = Array.from({ length: 8 }, (_, i) => ({
+    id: `restored-${i}`, title: `Saved ${i}`, notePath: `Old-${i}.md`, updated: i + 1,
+    messages: [{ id: `message-${i}`, role: 'user', text: 'Earlier conversation', final: true }]
+  }));
+  const { plugin, sockets } = await loadPlugin(true, {
+    settings: { url: 'ws://127.0.0.1:8771', conversations },
+    activeIds: conversations.map(chat => chat.id), file: { path: 'Current.md' } as TFile
+  });
+  t.after(() => plugin.onunload());
+  plugin.restoreSessions();
+  const current = plugin.activeConversation();
+  assert.equal(current.notePath, 'Current.md');
+  const session = plugin.sessionFor(current);
+  assert.equal(plugin.sessions.get(current.id), session);
+  assert.equal(plugin.sessions.size, 8);
+  assert.equal(sockets[0].closes, 1);
+  assert.equal(plugin.settings.conversations.filter(chat => chat.id.startsWith('restored-')).length, 8);
+  assert.equal(sockets[0].sent.some(command => command.type === 'edge.session.close'), false);
+});
+
+test('switching notes retains a chat with an unconfirmed outgoing message', async t => {
+  const { plugin, openFile, sockets } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'A.md' } as TFile);
+  const conversation = plugin.activeConversation();
+  const session = plugin.sessionFor(conversation);
+  conversation.outbox!.push({ id: 'pending', role: 'user', text: 'Keep this', final: true, delivery: 'unconfirmed' });
+  openFile({ path: 'B.md' } as TFile);
+  assert.equal(plugin.sessions.get(conversation.id), session);
+  assert.equal(sockets[0].closes, 0);
+  openFile({ path: 'A.md' } as TFile);
+  assert.equal(plugin.activeConversation().id, conversation.id);
+  assert.equal(conversation.outbox![0].text, 'Keep this');
+});
+
+test('recent messages win over a newer automatically created empty chat for the same note', async t => {
+  const now = Date.now();
+  const recent = { id: 'recent-content', title: 'Recent', notePath: 'A.md', updated: now - 180_000,
+    messages: [{ id: 'user', role: 'user', text: 'Continue this', final: true }] };
+  const empty = { id: 'empty', title: 'New conversation', notePath: 'A.md', updated: now - 1000, messages: [] };
+  const { plugin, openFile } = await loadPlugin(true, { settings: { conversations: [recent, empty] }, activeIds: [], file: { path: 'A.md' } as TFile });
+  t.after(() => plugin.onunload());
+  assert.equal(plugin.activeConversation().id, recent.id);
+  openFile({ path: 'B.md' } as TFile);
+  openFile({ path: 'A.md' } as TFile);
+  assert.equal(plugin.activeConversation().id, recent.id);
 });

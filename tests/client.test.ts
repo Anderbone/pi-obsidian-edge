@@ -60,3 +60,36 @@ test('invalid pairing closes without retrying or retaining queued commands', () 
   const { client, sockets, states } = setup(); client.send('prompt', { message: 'hi' });
   sockets[0].onclose?.({ code: 4001 }); assert.equal(states.at(-1), 'error'); client.disconnect();
 });
+test('foreground probes a live socket and replaces a silent one without losing queued messages', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { client, sockets } = setup(); t.after(() => client.disconnect());
+  client.connect(); sockets[0].open(); sockets[0].message(ready);
+  client.resume();
+  assert.equal(sockets[0].sent.at(-1)?.type, 'edge.ping');
+  sockets[0].message({ type: 'edge.pong', protocol: 1 });
+  t.mock.timers.tick(3000);
+  assert.equal(sockets.length, 1);
+  client.resume(); t.mock.timers.tick(3000);
+  assert.equal(sockets.length, 2);
+  client.send('prompt', { message: 'after resume' });
+  sockets[1].open(); sockets[1].message(ready);
+  assert.equal(sockets[1].sent.at(-1)?.type, 'prompt');
+});
+test('foreground bypasses reconnect backoff; stopped clients remain stopped', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { client, sockets } = setup(); t.after(() => client.disconnect());
+  client.send('prompt', { message: 'queued' });
+  sockets[0].close(); client.resume();
+  assert.equal(sockets.length, 2);
+  sockets[1].open(); sockets[1].message(ready);
+  assert.equal(sockets[1].sent.at(-1)?.type, 'prompt');
+  t.mock.timers.tick(1000); assert.equal(sockets.length, 2);
+  client.disconnect(); client.resume(); assert.equal(sockets.length, 2);
+});
+test('handshake timeout replaces sockets even when close never calls back', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { client, sockets } = setup(); t.after(() => client.disconnect());
+  client.connect(); sockets[0].close = () => {};
+  t.mock.timers.tick(12000);
+  assert.equal(sockets.length, 2);
+});

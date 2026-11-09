@@ -7,7 +7,7 @@ import { isPermissionId, type AgentEvent, type ChatMessage, type ErrorPacket, ty
 export type { ChatMessage } from '../shared/protocol';
 export interface Attachment { id: string; name: string; path?: string; text?: string; data?: string; mimeType?: string; }
 export interface PanelActions {
-  send(text: string, attachments: Attachment[]): void;
+  send(text: string, attachments: Attachment[]): void | Promise<void>;
   stop(): void;
   pair(): void;
   settings(): void;
@@ -62,6 +62,12 @@ export class ChatPanel {
   private conversationNotePath?: string;
   private chatState: HTMLElement;
   private state: string = 'disconnected';
+  setResumeHint(text: string, resume?: () => void): void {
+    this.root.querySelector('.edge-resume-hint')?.remove();
+    const hint = node('div', 'edge-resume-hint', text);
+    if (resume) hint.append(button('Continue last chat', 'Continue last chat', resume));
+    this.transcript.before(hint);
+  }
   constructor(private root: HTMLElement, private actions: PanelActions, paired: boolean) {
     root.replaceChildren(); root.classList.add('edge-panel');
     const header = node('header', 'edge-header');
@@ -143,10 +149,12 @@ export class ChatPanel {
     this.permissions.addEventListener('change', () => { const selected = this.permissions.value; this.permissions.value = this.currentPermissions; if (isPermissionId(selected)) actions.permissions(selected); });
     const primary = node('div', 'edge-primary-actions');
     this.stopButton = this.iconButton('Stop', 'Stop generation', () => actions.stop(), 'square'); this.stopButton.hidden = true;
-    this.sendButton = this.iconButton('↑', 'Send message', () => this.submit(), 'arrow-up', 'mod-cta edge-send-button');
+    this.sendButton = this.iconButton('↑', 'Send message', () => { void this.submit(); }, 'arrow-up', 'mod-cta edge-send-button');
     this.sendButton.append(node('span', 'edge-send-label', 'Send'));
     primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.permissions, primary);
-    composer.append(this.chips, this.input, upload, toolbar);
+    const autoAttachment = node('div', 'edge-auto-attachment'); autoAttachment.hidden = true;
+    autoAttachment.setAttribute('role', 'status');
+    composer.append(autoAttachment, this.chips, this.input, upload, toolbar);
     composer.addEventListener('submit', event => { event.preventDefault(); this.submit(); });
     root.append(header, conversation, connection, this.transcript, this.activity, this.outbox, composer);
     this.trackViewport();
@@ -204,16 +212,23 @@ export class ChatPanel {
     };
     schedule();
   }
-  private submit(): void {
+  setAutoAttachment(path?: string): void {
+    const hint = this.input.parentElement?.querySelector<HTMLElement>('.edge-auto-attachment');
+    if (hint) { hint.hidden = !path; hint.textContent = path ? 'Current note will be attached' : ''; }
+  }
+  private submitting = false;
+  private async submit(): Promise<void> {
+    if (this.submitting) return;
     if (this.imageImports) { this.error('Wait for the images to finish attaching.', this.busy); return; }
     const text = this.input.value.trim();
     if (!text && !this.attachments.length) return;
     if (this.state === 'disconnected') { this.actions.pair(); return; }
+    this.submitting = true;
     try {
-      this.actions.send(text || 'Please look at the attached context.', [...this.attachments]);
+      await this.actions.send(text || 'Please look at the attached context.', [...this.attachments]);
       this.input.value = ''; this.input.style.removeProperty('--edge-input-height'); this.attachments = []; this.renderAttachments();
       this.setBusy(true); this.typingText.textContent = this.state === 'ready' ? 'Thinking…' : 'Waiting for connection…';
-    } catch (error) { this.error((error as Error).message); }
+    } catch (error) { this.error((error as Error).message); } finally { this.submitting = false; }
   }
   statusChanged(state: string, detail: string): void {
     this.state = state; this.status.textContent = detail; this.status.title = detail; this.status.dataset.state = state;

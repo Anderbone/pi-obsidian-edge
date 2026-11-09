@@ -19,6 +19,7 @@ export class EdgeClient {
   private pending: ClientCommand[] = [];
   private timer?: ReturnType<Window['setTimeout']>;
   private deadline?: ReturnType<Window['setTimeout']>;
+  private probe?: ReturnType<Window['setTimeout']>;
   private stopped = true;
   private ready = false;
   private attempts = 0;
@@ -30,12 +31,13 @@ export class EdgeClient {
   connect(): void {
     this.stopped = false;
     if (this.socket && this.socket.readyState < 2) return;
+    window.clearTimeout(this.timer);
     this.hooks.status(this.attempts ? 'reconnecting' : 'connecting', this.attempts ? 'Reconnecting…' : 'Connecting…');
     const socket = this.createSocket(`${this.pairing.url}/rpc?token=${encodeURIComponent(this.pairing.token)}`);
     this.socket = socket;
     this.ready = false;
     const current = () => this.socket === socket;
-    this.deadline = window.setTimeout(() => { if (current() && !this.ready) socket.close(); }, 12000);
+    this.deadline = window.setTimeout(() => { if (current() && !this.ready) this.retryNow(); }, 12000);
     socket.onopen = () => {
       if (current()) socket.send(JSON.stringify({ type: 'edge.hello', protocol: 1, clientId: this.clientId, agent: 'pi', permissions: this.permissions } satisfies HelloPacket));
     };
@@ -45,6 +47,9 @@ export class EdgeClient {
       try { parsed = JSON.parse(String(event.data)); } catch { return; }
       if (!isRecord(parsed)) return;
       const message = parsed as unknown as ServerPacket;
+      if (parsed.type === 'edge.pong' && parsed.protocol === 1) {
+        window.clearTimeout(this.probe); this.probe = undefined; return;
+      }
       if (message.type === 'edge.ready') {
         window.clearTimeout(this.deadline);
         this.ready = true;
@@ -70,6 +75,7 @@ export class EdgeClient {
       this.ready = false;
       this.socket = undefined;
       window.clearTimeout(this.deadline);
+      window.clearTimeout(this.probe); this.probe = undefined;
       if (this.stopped) return;
       if (event.code === 4001 || event.code === 4003 || event.code === 4009) {
         this.pending = [];
@@ -79,6 +85,25 @@ export class EdgeClient {
       this.hooks.status('reconnecting', 'Connection lost. Reconnecting…');
       this.timer = window.setTimeout(() => this.connect(), Math.min(1000 * 2 ** this.attempts++, 15000));
     };
+  }
+  // Android can leave an apparently OPEN socket behind after suspending the app.
+  // Probe it on return; retain the session and unsent commands when replacing it.
+  resume(): void {
+    if (this.stopped) return;
+    if (!this.ready || this.socket?.readyState !== 1) { this.retryNow(); return; }
+    if (this.probe !== undefined) return;
+    this.probe = window.setTimeout(() => { this.probe = undefined; this.retryNow(); }, 3000);
+    try { this.socket.send(JSON.stringify({ type: 'edge.ping', protocol: 1 })); }
+    catch { this.retryNow(); }
+  }
+  private retryNow(): void {
+    window.clearTimeout(this.timer);
+    window.clearTimeout(this.deadline);
+    window.clearTimeout(this.probe); this.probe = undefined;
+    const socket = this.socket;
+    this.socket = undefined; this.ready = false;
+    socket?.close();
+    if (!this.stopped) this.connect();
   }
   send<K extends CommandType>(type: K, ...[fields]: CommandFields[K] extends undefined ? [fields?: undefined] : [fields: CommandFields[K]]): string {
     const id = `${this.clientId}-${Date.now()}-${++this.sequence}`;
@@ -95,6 +120,7 @@ export class EdgeClient {
     this.stopped = true;
     window.clearTimeout(this.timer);
     window.clearTimeout(this.deadline);
+    window.clearTimeout(this.probe); this.probe = undefined;
     this.pending = [];
     const socket = this.socket;
     this.socket = undefined;
