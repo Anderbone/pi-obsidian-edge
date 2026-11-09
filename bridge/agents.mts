@@ -74,7 +74,7 @@ const pi: AgentAdapter = {
       case 'tool_execution_end': return [{ kind: 'tool', id: event.toolCallId, name: event.toolName, output: bounded(text(event.result)), phase: event.isError ? 'failed' : 'completed' }];
       case 'extension_ui_request': return [{ kind: 'error', message: 'This agent requested an unsupported interaction. Complete it on the computer or stop the run.' }];
       case 'response':
-        if (event.command === 'clear_queue' && event.success !== false) return [{ kind: 'queue.cleared', messages: [...(event.data?.steering || []), ...(event.data?.followUp || [])] }];
+        if (event.command === 'clear_queue' && event.success !== false) return [{ kind: 'queue.cleared', ...(event.id ? { requestId: event.id } : {}), messages: [...(event.data?.steering || []), ...(event.data?.followUp || [])] }];
         if (event.command === 'prompt' && event.id) return [{ kind: 'prompt.status', requestId: event.id,
           disposition: event.success === false ? 'failed' : event.data?.disposition || 'started',
           ...(event.success === false ? { error: event.error || 'Pi rejected the message.' } : {}) }];
@@ -108,7 +108,7 @@ const pi: AgentAdapter = {
             if (seen.has(message.id)) return false;
             seen.add(message.id); return true;
           });
-          return [{ kind: 'history', messages }];
+          return [{ kind: 'history', messages, ...(event.id ? { requestId: event.id } : {}) }];
         }
         if (event.command === 'get_available_models') return [{ kind: 'models', models: (event.data?.models || []).map(model => ({
           id: `${model.provider}/${model.id}`, name: `${model.provider} / ${model.name || model.id}`, provider: model.provider, modelId: model.id })) }];

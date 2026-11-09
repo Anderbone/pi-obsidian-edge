@@ -11,7 +11,13 @@ def run(*args):
     return subprocess.check_output(args, text=True).strip()
 
 devices = run('adb', 'devices', '-l').splitlines()[1:]
-folds = [line.split()[0] for line in devices if ' device ' in line and 'model:SM_F976B' in line]
+transports = [line.split()[0] for line in devices if ' device ' in line and 'model:SM_F976B' in line]
+# Wireless ADB can expose the same Fold by both IP and mDNS transport.
+folds_by_serial = {}
+for transport in transports:
+    serial = run('adb', '-s', transport, 'shell', 'getprop', 'ro.serialno')
+    folds_by_serial.setdefault(serial or transport, transport)
+folds = list(folds_by_serial.values())
 if len(folds) != 1:
     raise SystemExit('Connect exactly one paired Fold (SM_F976B) over ADB, then retry.')
 adb = ['adb', '-s', folds[0]]

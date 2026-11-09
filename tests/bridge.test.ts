@@ -303,3 +303,30 @@ test('delta-only streaming stays isolated per Pi process and uses authoritative 
   assert.deepEqual(a.normalize({ type: 'agent_end', willRetry: true }), []);
   assert.deepEqual(a.normalize({ type: 'agent_settled' }), [{ kind: 'run.finished' }]);
 });
+
+test('rewritten prompts settle through the real WebSocket and correlated history response without resubmission', async t => {
+  const { url, launches } = await setup(t);
+  const { ConversationSession } = await import('../src/sessions');
+  const conversation = { id: crypto.randomUUID(), title: 'Rewrite', updated: 0, messages: [], outbox: [] } as import('../src/history').Conversation;
+  const session = new ConversationSession(conversation, {
+    pairing: { url, token }, permissions: 'full', model: '', effort: 'off', changed() {}, status() {},
+    createSocket: address => new WebSocket(address) as unknown as SocketLike
+  });
+  t.after(() => session.dispose());
+  const complete = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Session did not settle its outbox')), 4000);
+    session.listeners.add(event => {
+      if (event?.kind === 'history' && conversation.messages.some(message => message.role === 'assistant') && !conversation.outbox?.length) {
+        clearTimeout(timer); resolve();
+      }
+    });
+  });
+  session.connect();
+  const images = [{ type: 'image' as const, mimeType: 'image/png', data: 'aGVsbG8=' }];
+  session.send('rewrite: expand this template', images);
+  await complete;
+  assert.deepEqual(conversation.messages.map(message => message.role), ['user', 'assistant']);
+  assert.equal(conversation.messages[0].text, 'Expanded template input with provider-specific context');
+  assert.deepEqual(conversation.messages[0].images, images);
+  assert.equal(launches.length, 1);
+});

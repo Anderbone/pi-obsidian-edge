@@ -5,7 +5,7 @@ export function isPermissionId(value: unknown): value is PermissionId {
   return value === 'read' || value === 'edit' || value === 'full';
 }
 export interface ToolDetails { name: string; phase: 'running' | 'completed' | 'failed'; input?: string; output?: string; }
-export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; final: boolean; images?: ImageInput[]; tool?: ToolDetails; requestId?: string; delivery?: 'sending' | 'queued' | 'failed'; }
+export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; final: boolean; images?: ImageInput[]; tool?: ToolDetails; requestId?: string; afterMessageId?: string; delivery?: 'sending' | 'accepted' | 'queued' | 'failed' | 'unconfirmed'; }
 export interface ModelEntry { id: string; name: string; provider?: string; modelId?: string; }
 export interface ImageInput { data: string; mimeType: string; type?: 'image'; }
 export interface AgentInfo {
@@ -15,9 +15,9 @@ export interface AgentInfo {
 
 export type AgentEvent = (
   | ({ kind: 'message' } & ChatMessage)
-  | { kind: 'history'; messages: ChatMessage[] }
+  | { kind: 'history'; messages: ChatMessage[]; requestId?: string }
   | { kind: 'prompt.status'; requestId: string; disposition: 'started' | 'queued' | 'handled' | 'failed'; error?: string }
-  | { kind: 'queue.cleared'; messages: string[] }
+  | { kind: 'queue.cleared'; messages: string[]; requestId?: string }
   | { kind: 'run.started' }
   | { kind: 'run.finished' }
   | { kind: 'tool'; id?: string; name?: string; phase: 'running' | 'completed' | 'failed'; input?: string; output?: string }

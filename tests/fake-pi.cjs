@@ -4,7 +4,7 @@ const messages = [];
 const queued = [];
 const response = (command, disposition) => emit({ type: 'response', id: command.id, command: command.type, success: true, data: { disposition } });
 const userMessage = command => {
-  const user = { role: 'user', content: [{ type: 'text', text: command.message }, ...(command.images || []).map(image => ({ ...image, type: 'image' }))], timestamp: ++timestamp };
+  const user = { role: 'user', content: [{ type: 'text', text: command.message.startsWith('rewrite:') ? 'Expanded template input with provider-specific context' : command.message }, ...(command.images || []).map(image => ({ ...image, type: 'image' }))], timestamp: ++timestamp };
   messages.push(user); emit({ type: 'message_start', message: user });
 };
 let timestamp = Date.now();
@@ -15,8 +15,8 @@ process.stdin.on('data', chunk => {
   while ((newline = input.indexOf('\n')) >= 0) {
     const command = JSON.parse(input.slice(0, newline)); input = input.slice(newline + 1);
     if (command.type === 'get_state') emit({ type: 'response', command: 'get_state', success: true, data: { model: { provider: 'test', id: 'model' }, isStreaming: busy } });
-    else if (command.type === 'get_messages') emit({ type: 'response', command: 'get_messages', success: true, data: { messages } });
-    else if (command.type === 'clear_queue') { const steering = queued.splice(0).map(item => item.message); emit({ type: 'response', command: 'clear_queue', success: true, data: { steering, followUp: [] } }); }
+    else if (command.type === 'get_messages') emit({ type: 'response', id: command.id, command: 'get_messages', success: true, data: { messages } });
+    else if (command.type === 'clear_queue') { const steering = queued.splice(0).map(item => item.message); emit({ type: 'response', id: command.id, command: 'clear_queue', success: true, data: { steering, followUp: [] } }); }
     else if (command.type === 'abort') { clearTimeout(pending); busy = false; queued.length = 0; emit({ type: 'agent_end' }); emit({ type: 'agent_settled', aborted: true }); }
     else if (command.type === 'get_available_models') emit({ type: 'response', command: command.type, success: true, data: { models: [{ provider: 'test', id: 'model' }] } });
     else if (command.type === 'get_available_thinking_levels') emit({ type: 'response', command: command.type, success: true, data: { levels: ['off'] } });

@@ -129,3 +129,17 @@
 .edge-active-chat-row .setting-item-name { display: flex; align-items: baseline; gap: 8px; }
 .edge-active-chat-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-yellow, #e5b94b); }
 .edge-active-chat-dot[data-running='true'] { background: var(--color-green, #4ac779); }
+
+.edge-outbox {
+  flex: 0 1 auto;
+  max-height: 24vh;
+  overflow: auto;
+  padding: 4px 12px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.edge-outbox-item { padding: 4px 0; }
+.edge-outbox-item summary { cursor: pointer; }
+.edge-outbox-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.edge-outbox-item button { margin-right: 8px; }

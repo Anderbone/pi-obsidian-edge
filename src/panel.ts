@@ -46,6 +46,8 @@ export class ChatPanel {
   private stopButton: HTMLButtonElement;
   private chips: HTMLElement;
   private activity: HTMLElement;
+  private outbox: HTMLElement;
+  private outboxKey = '';
   private attachments: Attachment[] = [];
   private imageQueue: Promise<void> = Promise.resolve();
   private imageImports = 0;
@@ -101,6 +103,8 @@ export class ChatPanel {
     this.typingText = node('span', 'edge-typing-text', 'Thinking…'); this.typing.append(dots, this.typingText);
     this.transcript.append(this.empty, this.typing);
     this.activity = node('div', 'edge-activity'); this.activity.setAttribute('role', 'status'); this.activity.hidden = true;
+    this.outbox = node('div', 'edge-outbox'); this.outbox.hidden = true;
+    this.outbox.setAttribute('aria-label', 'Outgoing messages');
     const composer = node('form', 'edge-composer');
     this.chips = node('div', 'edge-attachments');
     this.input = node('textarea', 'edge-input'); this.input.placeholder = 'Ask Pi…'; this.input.rows = 2; this.input.setAttribute('aria-label', 'Message');
@@ -144,7 +148,7 @@ export class ChatPanel {
     primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.permissions, primary);
     composer.append(this.chips, this.input, upload, toolbar);
     composer.addEventListener('submit', event => { event.preventDefault(); this.submit(); });
-    root.append(header, conversation, connection, this.transcript, this.activity, composer);
+    root.append(header, conversation, connection, this.transcript, this.activity, this.outbox, composer);
     this.trackViewport();
   }
   private iconButton(label: string, title: string, action: () => void, icon: string, cls = ''): HTMLButtonElement {
@@ -335,6 +339,23 @@ export class ChatPanel {
     if (index >= 0) this.messages[index] = message; else this.messages.push(message);
     if (notify && message.final) this.actions.changed([...this.messages]);
     if (atBottom || message.role === 'user') this.transcript.scrollTop = this.transcript.scrollHeight;
+  }
+  setOutbox(messages: ChatMessage[], dismiss: (id: string) => void): void {
+    const key = JSON.stringify(messages.map(message => [message.id, message.delivery]));
+    if (this.outboxKey === key) return;
+    this.outboxKey = key;
+    this.outbox.replaceChildren(); this.outbox.hidden = !messages.length;
+    for (const message of messages) {
+      const details = node('details', 'edge-outbox-item');
+      const label = message.delivery === 'queued' ? 'Queued for next turn' : message.delivery === 'accepted' ? 'Accepted · awaiting history sync' : message.delivery === 'failed' ? 'Failed or cancelled' : message.delivery === 'unconfirmed' ? 'Delivery unconfirmed · check conversation before retrying' : 'Sending…';
+      const text = userMessage(message.text).text;
+      details.append(node('summary', '', `${label}: ${text.slice(0, 60) || 'Image message'}`));
+      details.append(node('pre', 'edge-outbox-text', text));
+      if (message.images?.length) details.append(node('p', '', `${message.images.length} attached image(s)`));
+      details.append(button('Copy', 'Copy outgoing message', () => { void navigator.clipboard.writeText(text).catch(() => this.error('Could not copy message.')); }));
+      if (message.delivery === 'failed' || message.delivery === 'unconfirmed') details.append(button('Dismiss', 'Dismiss outgoing message', () => dismiss(message.id)));
+      this.outbox.append(details);
+    }
   }
   restore(messages: ChatMessage[]): void {
     this.messages = []; this.rows.clear(); this.transcript.replaceChildren(this.empty, this.typing); this.empty.hidden = messages.length > 0;

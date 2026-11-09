@@ -14,20 +14,8 @@ export function mergeToolHistory(previous: ChatMessage[], incoming: ChatMessage[
     const saved = previous.find(item => item.id === message.id);
     return !message.images?.length && saved?.images?.length ? { ...message, images: saved.images } : message;
   });
-  const previousIds = new Set(previous.filter(message => !message.delivery).map(message => message.id));
-  const newlyDelivered = incoming.filter(message => message.role === 'user' && !previousIds.has(message.id));
   let anchor: string | undefined;
   for (const message of previous) {
-    if (message.delivery) {
-      const delivered = newlyDelivered.findIndex(item => item.text === message.text);
-      if (delivered >= 0 && message.delivery !== 'failed') {
-        const incoming = messages.find(item => item.id === newlyDelivered[delivered].id)!;
-        if (!incoming.images?.length && message.images?.length) incoming.images = message.images;
-        newlyDelivered.splice(delivered, 1);
-      }
-      else messages.push(message);
-      continue;
-    }
     if (message.tool && !messages.some(item => item.id === message.id)) {
       const at = anchor ? messages.findIndex(item => item.id === anchor) : -1;
       messages.splice(at + 1, 0, message);

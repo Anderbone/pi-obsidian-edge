@@ -259,8 +259,11 @@ class EdgeView extends ItemView {
     try { this.session = this.plugin.sessionFor(this.conversation); }
     catch (error) { this.panel.error((error as Error).message); return; }
     const session = this.session;
+    this.panel.restore(session.conversation.messages);
     this.panel.restoreDraft(session.draft);
+    this.panel.setOutbox(session.conversation.outbox || [], id => session.dismissOutgoing(id));
     const update = (event?: ClientEvent) => {
+      this.panel?.setOutbox(session.conversation.outbox || [], id => session.dismissOutgoing(id));
       if (event?.kind === 'error' || event?.type === 'edge.error') this.panel?.error(event.message, session.busy);
       else if (event && event.type !== 'edge.ready') this.panel?.handle(event);
       if (!event) { this.panel?.statusChanged(session.status, session.detail); this.panel?.setBusy(session.busy); }

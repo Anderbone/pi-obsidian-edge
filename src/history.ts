@@ -1,7 +1,7 @@
 import type { ChatMessage, PermissionId } from '../shared/protocol';
 
 export interface Conversation {
-  id: string; title: string; messages: ChatMessage[]; updated: number;
+  id: string; title: string; messages: ChatMessage[]; outbox?: ChatMessage[]; updated: number;
   lastActivity?: number; notePath?: string; model?: string; effort?: string; permissions?: PermissionId; bridgeSessionId?: string;
 }
 export interface HistoryLimits { historyMaxConversations: number; historyMaxMB: number; }
