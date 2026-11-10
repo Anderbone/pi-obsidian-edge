@@ -154,10 +154,20 @@
 .edge-outbox-item button { margin-right: 8px; }
 
 .edge-auto-attachment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 4px 12px 0;
   color: var(--text-muted);
   font-size: var(--font-smallest);
   overflow-wrap: anywhere;
+}
+.edge-auto-attachment .edge-auto-attachment-remove {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 6px;
+  color: var(--text-muted);
 }
 
 .edge-resume-hint { padding: 4px 12px; color: var(--text-muted); font-size: var(--font-smallest); flex-shrink: 0; }

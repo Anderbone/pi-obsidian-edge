@@ -49,6 +49,8 @@ export class ChatPanel {
   private outbox: HTMLElement;
   private outboxKey = '';
   private attachments: Attachment[] = [];
+  private skipAutoAttachment = false;
+  private autoAttachmentPath?: string;
   private imageQueue: Promise<void> = Promise.resolve();
   private imageImports = 0;
   private imageDialog?: HTMLDialogElement;
@@ -154,6 +156,11 @@ export class ChatPanel {
     primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.permissions, primary);
     const autoAttachment = node('div', 'edge-auto-attachment'); autoAttachment.hidden = true;
     autoAttachment.setAttribute('role', 'status');
+    autoAttachment.append(node('span', '', 'Current note will be attached'),
+      this.iconButton('×', 'Do not attach current note', () => {
+        this.skipAutoAttachment = true;
+        this.setAutoAttachment(this.autoAttachmentPath);
+      }, 'x', 'edge-auto-attachment-remove'));
     composer.append(autoAttachment, this.chips, this.input, upload, toolbar);
     composer.addEventListener('submit', event => { event.preventDefault(); this.submit(); });
     root.append(header, conversation, connection, this.transcript, this.activity, this.outbox, composer);
@@ -177,9 +184,11 @@ export class ChatPanel {
     this.conversationLabel.title = notePath ? `${notePath} · ${title} · 点击复制仓库内路径` : title;
     this.conversationLabel.setAttribute('aria-label', notePath ? `复制文档路径（从仓库根目录）：${notePath}` : title);
   }
-  getDraft(): ComposerDraft { return { text: this.input.value, attachments: [...this.attachments] }; }
+  getDraft(): ComposerDraft { return { text: this.input.value, attachments: [...this.attachments], skipAutoAttachment: this.skipAutoAttachment }; }
   restoreDraft(draft: ComposerDraft): void {
     this.input.value = draft.text; this.attachments = [...draft.attachments]; this.renderAttachments();
+    this.skipAutoAttachment = !!draft.skipAutoAttachment;
+    this.setAutoAttachment(this.autoAttachmentPath);
   }
   setPermissions(mode: PermissionId, modes: PermissionMode[]): void {
     this.currentPermissions = mode; this.permissions.replaceChildren(...modes.map(item => new Option(item.label, item.id))); this.permissions.value = mode;
@@ -213,8 +222,9 @@ export class ChatPanel {
     schedule();
   }
   setAutoAttachment(path?: string): void {
+    this.autoAttachmentPath = path;
     const hint = this.input.parentElement?.querySelector<HTMLElement>('.edge-auto-attachment');
-    if (hint) { hint.hidden = !path; hint.textContent = path ? 'Current note will be attached' : ''; }
+    if (hint) hint.hidden = !path || this.skipAutoAttachment;
   }
   private submitting = false;
   private async submit(): Promise<void> {
@@ -240,12 +250,14 @@ export class ChatPanel {
     this.chatState.dataset.running = String(this.state === 'ready' && this.busy);
   }
   setBusy(value: boolean): void {
+    const started = value && !this.busy;
     const keepError = !value && this.activity.dataset.error === 'true';
     if (!keepError) delete this.activity.dataset.error;
     this.busy = value; this.typing.hidden = !value; this.permissions.disabled = value;
     this.renderChatState();
     this.activity.hidden = !keepError;
-    if (value) { this.empty.hidden = true; this.typingText.textContent = 'Thinking…'; this.transcript.scrollTop = this.transcript.scrollHeight; }
+    if (value) this.empty.hidden = true;
+    if (started) { this.typingText.textContent = 'Thinking…'; this.transcript.scrollTop = this.transcript.scrollHeight; }
     this.sendButton.disabled = this.imageImports > 0; this.stopButton.hidden = !value;
     if (!value && !keepError) this.activity.textContent = '';
   }

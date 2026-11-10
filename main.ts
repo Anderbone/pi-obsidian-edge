@@ -320,7 +320,7 @@ class EdgeView extends ItemView {
   private async send(text: string, attachments: Attachment[]): Promise<void> {
     if (!this.session) throw new Error('Pair your computer before sending a message.');
     const session = this.session;
-    if (this.plugin.settings.autoAttachCurrentNote && !session.conversation.messages.length && !session.conversation.outbox?.length && this.plugin.lastFile && !attachments.some(item => item.path === this.plugin.lastFile?.path)) {
+    if (this.plugin.settings.autoAttachCurrentNote && !this.panel?.getDraft().skipAutoAttachment && !session.conversation.messages.length && !session.conversation.outbox?.length && this.plugin.lastFile && !attachments.some(item => item.path === this.plugin.lastFile?.path)) {
       const note = await this.attach('note');
       if (this.session !== session) throw new Error('Chat changed. Send your message again.');
       if (note) attachments = [...attachments, note];

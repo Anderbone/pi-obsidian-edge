@@ -8,7 +8,7 @@ import type { ChatMessage, ClientEvent, ModelEntry, PermissionId, PermissionMode
 
 export const MAX_ACTIVE_CHATS = 8;
 export const ACTIVE_IDLE_MS = 24 * 60 * 60 * 1000;
-export interface ComposerDraft { text: string; attachments: Attachment[]; }
+export interface ComposerDraft { text: string; attachments: Attachment[]; skipAutoAttachment?: boolean; }
 interface SessionOptions {
   pairing: Pairing; permissions: PermissionId; model: string; effort: string;
   changed(): void;
