@@ -2,7 +2,7 @@
 
 Chat with **Pi on your computer from Obsidian on your phone or desktop**. Attach notes and images, switch models, and reopen earlier conversations.
 
-Pi is an AI coding assistant that runs on your computer. Pi Edge lets you talk to it inside Obsidian. A small program called the **bridge** connects the two.
+Pi is an AI coding assistant that runs on your computer. Pi Edge lets you talk to it inside Obsidian. A small program called the **bridge** connects the two. The bridge uses Pi Durable with SQLite to preserve conversations and recover unfinished tasks after a restart.
 
 ## Prefer to let your agent set up the computer?
 
@@ -35,7 +35,7 @@ You need a computer to run Pi, plus Obsidian on the phone or desktop where you w
 Open a terminal (Terminal on macOS/Linux, or PowerShell on Windows). Copy the command below, replace `/path/to/your/vault` with the full path to your Obsidian vault folder **on the computer**, and run it. A vault is the folder containing your notes. Keep the quotation marks, especially if the path contains spaces.
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.10/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.0/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 For example, a vault path might be `/Users/alex/Documents/My Vault` on macOS or `C:\Users\Alex\Documents\My Vault` on Windows. In desktop Obsidian, you can right-click a note and choose **Show in system explorer** to help find your vault folder.
@@ -71,9 +71,17 @@ Chat beside your notes on a Galaxy Fold:
 
 - Attach the current note, a selection, another vault note, or an image using the composer icons.
 - Opening a different note starts a fresh chat with independent context. The top of the sidebar shows the note's full vault-relative path; click it to copy. Earlier chats remain available in History.
-- Use **＋** for another independent chat, then **History** to search and resume chats. Running chats appear first with a Stop button; other chats show their last message time. Idle connections close after 24 hours without losing context. Switching notes or chats keeps tasks running.
+- Use **＋** for another independent chat, then **History** to search and resume chats. Running chats appear first with a Stop button; other chats show their last message time. Idle connections close after 24 hours without losing context. Phone disconnections do not stop running tasks; the Durable backend recovers unfinished work after a bridge restart. Switching notes or chats keeps tasks running.
 - History defaults to **500 conversations / 50 MB**. Change either limit in settings.
 - **Full access** is the default, including file edits and shell commands. Choose **Read only** or **Read & write** as needed; these are not filesystem sandboxes.
 - Messages go through your computer to your Pi model provider. Chat text may sync with your vault. Keep pairing codes private. No telemetry or hosted relay.
 
 [User guide](docs/guide.md) · [Development](docs/development.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)
+
+## Backend and recovery
+
+The default backend is Pi Durable 1.5.1. It reuses Pi model credentials and configuration. Each chat has a private SQLite database under `~/.config/pi-obsidian-edge/durable/<vault-hash>/`; use `--state-dir` to choose another private storage root. Keep this directory when upgrading. Existing CLI sessions are imported on first opening, without modifying their original files. Do not run two bridges against the same state directory.
+
+Accepted submissions persist before acknowledgement. On startup, the bridge resumes unfinished chats without waiting for a phone. Interrupted read-only tools can rerun; interrupted writes and shell commands are reported as interrupted rather than blindly repeated. This is recovery, not a guarantee of exactly-once external side effects.
+
+Use `--backend cli` to run the previous Pi CLI backend. The existing pairing token and mobile history remain unchanged. Durable-only conversations are not exported back into CLI session files, so use the Durable backend to continue those chats.

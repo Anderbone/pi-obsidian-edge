@@ -11,10 +11,10 @@ import { FULL_TOOLS } from './permissions.mts';
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv.includes('--help')) {
-    console.log('Pi Edge bridge\n\nUsage: pi-edge-bridge --cwd /path/to/vault [--host IP-or-hostname] [--port 8771] [--url ws[s]://address] [--pi /path/to/pi] [--model provider/id] [--tools read,grep,find,ls]\n\nAutomatically uses Tailscale, then a private LAN address, otherwise localhost. Use --host to choose another interface.\n--url sets the pairing address for a TLS reverse proxy or a different public address; it does not enable TLS on the bridge.\nPairing credentials stay in ~/.config/pi-obsidian-edge/token.'); return;
+    console.log('Pi Edge bridge\n\nDefault backend: Pi Durable (SQLite). Use --backend cli for the previous runtime.\n--state-dir selects the private durable storage directory.\n\nUsage: pi-edge-bridge --cwd /path/to/vault [--host IP-or-hostname] [--port 8771] [--url ws[s]://address] [--pi /path/to/pi] [--model provider/id] [--tools read,grep,find,ls]\n\nAutomatically uses Tailscale, then a private LAN address, otherwise localhost. Use --host to choose another interface.\n--url sets the pairing address for a TLS reverse proxy or a different public address; it does not enable TLS on the bridge.\nPairing credentials stay in ~/.config/pi-obsidian-edge/token.'); return;
   }
   const args: Record<string, string> = {};
-  const known = new Set(['--cwd', '--host', '--port', '--url', '--pi', '--model', '--tools']);
+  const known = new Set(['--cwd', '--host', '--port', '--url', '--pi', '--model', '--tools', '--backend', '--state-dir']);
   for (let i = 0; i < argv.length; i += 2) {
     if (!known.has(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option: ${argv[i]}`);
     args[argv[i].slice(2)] = argv[i + 1];
@@ -30,7 +30,8 @@ async function main(): Promise<void> {
   catch (error) { if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error; }
   fs.chmodSync(tokenFile, 0o600);
   const token = fs.readFileSync(tokenFile, 'utf8').trim();
-  const bridge = createBridge({ token, cwd, pi: args.pi, model: args.model, tools: args.tools });
+  if (args.backend && !['durable', 'cli'].includes(args.backend)) throw new Error('Backend must be durable or cli.');
+  const bridge = createBridge({ token, cwd, durableDirectory: args.backend === 'cli' ? undefined : path.join(args['state-dir'] || path.join(config, 'durable'), crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 16)), pi: args.pi, model: args.model, tools: args.tools });
   await bridge.listen(port, host);
   const code = 'pi-edge:v1:' + Buffer.from(JSON.stringify({ url, token })).toString('base64url');
   const link = 'obsidian://pi-edge?code=' + encodeURIComponent(code);

@@ -93,3 +93,12 @@ test('handshake timeout replaces sockets even when close never calls back', t =>
   t.mock.timers.tick(12000);
   assert.equal(sockets.length, 2);
 });
+test('silent established connections are detected without waiting for a foreground event', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { client, sockets } = setup(); t.after(() => client.disconnect());
+  client.connect(); sockets[0].open(); sockets[0].message(ready);
+  t.mock.timers.tick(15000);
+  assert.equal(sockets[0].sent.at(-1)?.type, 'edge.ping');
+  t.mock.timers.tick(3000);
+  assert.equal(sockets.length, 2);
+});

@@ -1,4 +1,7 @@
 import http from 'node:http';
+import type { Models } from '@earendil-works/pi-ai';
+import { readFileSync, readdirSync } from 'node:fs';
+import { createDurableProcess, closeDurableProcesses } from './durable.mts';
 import crypto from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
@@ -8,7 +11,7 @@ import { availableModes, toolsFor, FULL_TOOLS } from './permissions.mts';
 import { isRecord, RPC_COMMANDS, type EventPacket, type PermissionId, type PiRequest, type RpcCommandType, type ServerPacket } from '../shared/protocol';
 
 export interface BridgeOptions {
-  token: string; cwd: string; pi?: string; model?: string; tools?: string; label?: string; graceMs?: number;
+  token: string; cwd: string; durableDirectory?: string; durableModels?: Models; pi?: string; model?: string; tools?: string; label?: string; graceMs?: number;
   spawn?: (executable: string, args: string[], options: SpawnOptionsWithoutStdio) => ChildProcessWithoutNullStreams;
 }
 interface Session {
@@ -64,10 +67,10 @@ export function createBridge(options: BridgeOptions) {
     };
     if (session.started) announce(); else session.child.once('spawn', announce);
   }
-  function startSession(clientId: string, ws: BridgeSocket, adapter: AgentAdapter, permissions: PermissionId): void {
+  function startSession(clientId: string, ws: BridgeSocket | undefined, adapter: AgentAdapter, permissions: PermissionId): void {
     const sessionTools = toolsFor(permissions, tools);
     const command = adapter.launch({ ...options, tools: sessionTools, sessionId: clientId });
-    const child = launch(command.executable, command.args, { cwd: options.cwd, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = options.durableDirectory ? createDurableProcess({ directory: options.durableDirectory, cwd: options.cwd, clientId, tools: sessionTools, model: options.model, models: options.durableModels }) : launch(command.executable, command.args, { cwd: options.cwd, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
     const session: Session = { id: crypto.randomUUID(), clientId, child, adapter, tools: sessionTools, permissions, busy: false, started: false, socket: undefined,
       events: [], bytes: 0, sequence: 0, seen: new Set(), expiry: undefined };
     sessions.set(clientId, session);
@@ -120,7 +123,7 @@ export function createBridge(options: BridgeOptions) {
       if (!shuttingDown) send(session.socket, { type: 'edge.error', message: `Pi stopped (${code ?? 'signal'}). The next connection starts a new session.` });
       session.socket?.close(1011, 'Pi stopped');
     });
-    attach(session, ws);
+    if (ws) attach(session, ws);
   }
   const expected = Buffer.from(options.token);
   function authorized(req: http.IncomingMessage): boolean {
@@ -237,7 +240,25 @@ export function createBridge(options: BridgeOptions) {
       }
     });
   });
-  const heartbeat = setInterval(() => { for (const ws of wss.clients) if (ws.readyState === 1) ws.ping(); }, 10000);
+  const alive = new WeakSet<WebSocket>();
+  wss.on('connection', ws => { alive.add(ws); ws.on('pong', () => alive.add(ws)); });
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (!alive.has(ws)) { ws.terminate(); continue; }
+      alive.delete(ws); if (ws.readyState === 1) ws.ping();
+    }
+  }, 10000);
+  // Recover only admitted, unfinished work; idle stores load on demand.
+  if (options.durableDirectory) {
+    let files: string[] = [];
+    try { files = readdirSync(options.durableDirectory); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    for (const file of files) if (/^[a-zA-Z0-9-]{8,100}\.active$/.test(file)) {
+      const saved = JSON.parse(readFileSync(options.durableDirectory + '/' + file, 'utf8')) as { tools: string };
+      const mode = modes.find(mode => toolsFor(mode.id, tools) === saved.tools);
+      if (!mode) throw new Error('Cannot recover a task whose tool permissions changed.');
+      startSession(file.slice(0, -7), undefined, getAgent('pi'), mode.id);
+    }
+  }
   heartbeat.unref();
   return {
     server,
@@ -248,7 +269,7 @@ export function createBridge(options: BridgeOptions) {
       shuttingDown = true; clearInterval(heartbeat);
       for (const session of [...sessions.values()]) removeSession(session);
       for (const ws of wss.clients) ws.terminate();
-      wss.close(); server.close(() => resolve());
+      wss.close(); server.close(() => { void closeDurableProcesses().then(resolve); });
     })
   };
 }

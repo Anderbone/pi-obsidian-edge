@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Run the bridge on Pi Durable with private SQLite storage, persistent submission IDs, automatic recovery of unfinished work after restart, and one-time import of existing Pi chat context. Keep the previous CLI runtime available with `--backend cli`.
+- Detect silent connections on both ends, probe immediately on foreground/network recovery, and reconnect without waiting for a stuck WebSocket close event.
+- Keep the existing mobile protocol, tools, permissions, model selection, images, steering and history. Ship runtime dependencies in the bridge archive for offline installation.
+
 ## 0.2.10
 
 - Show conversations in chat history only after you send a message. Hide unused chats created by opening the panel or browsing notes, including existing empty entries.

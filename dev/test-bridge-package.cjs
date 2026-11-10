@@ -29,7 +29,7 @@ async function main() {
     assert.equal(installs.length, 1);
     const installed = path.join(cache, '_npx', installs[0], 'node_modules/pi-edge-bridge');
     const metadata = JSON.parse(await fs.readFile(path.join(installed, 'package.json'), 'utf8'));
-    assert.equal(metadata.dependencies, undefined);
+    assert.equal(metadata.dependencies['@earendil-works/pi-durable'], '1.5.1');
     await fs.access(path.join(installed, 'THIRD-PARTY-LICENSES.txt'));
     const archiveBytes = await fs.readFile(archive);
     const download = http.createServer((req, res) => { res.setHeader('Content-Type', 'application/octet-stream'); res.end(archiveBytes); });
@@ -53,7 +53,7 @@ async function main() {
     const port = reservation.address().port;
     await new Promise(resolve => reservation.close(resolve));
     child = spawn(process.execPath, ['--require', preload, path.join(installed, 'cli.cjs'), '--cwd', temporary,
-      '--host', '127.0.0.1', '--port', String(port), '--pi', fakePi], { cwd: temporary, stdio: ['ignore', 'pipe', 'pipe'] });
+      '--host', '127.0.0.1', '--port', String(port), '--backend', 'durable', '--pi', fakePi], { cwd: temporary, stdio: ['ignore', 'pipe', 'pipe'] });
     const exited = once(child, 'exit');
     // Drain output without ever printing a connection code.
     child.stderr.resume();
@@ -88,7 +88,7 @@ async function main() {
     socket.terminate();
     child.kill('SIGTERM');
     assert.equal((await exited)[0], 0);
-    console.log('Packaged bridge: offline and URL npx install, isolated startup, connection test, token authentication, and Pi handshake passed.');
+    console.log('Packaged bridge: offline and URL npx install, isolated startup, connection test, token authentication, and default Durable handshake passed.');
   } finally {
     socket?.terminate();
     if (child && child.exitCode === null) child.kill('SIGKILL');

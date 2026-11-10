@@ -20,6 +20,7 @@ export class EdgeClient {
   private timer?: ReturnType<Window['setTimeout']>;
   private deadline?: ReturnType<Window['setTimeout']>;
   private probe?: ReturnType<Window['setTimeout']>;
+  private heartbeat?: ReturnType<Window['setTimeout']>;
   private stopped = true;
   private ready = false;
   private attempts = 0;
@@ -48,7 +49,8 @@ export class EdgeClient {
       if (!isRecord(parsed)) return;
       const message = parsed as unknown as ServerPacket;
       if (parsed.type === 'edge.pong' && parsed.protocol === 1) {
-        window.clearTimeout(this.probe); this.probe = undefined; return;
+        window.clearTimeout(this.heartbeat);
+        window.clearTimeout(this.probe); this.probe = undefined; this.scheduleHeartbeat(); return;
       }
       if (message.type === 'edge.ready') {
         window.clearTimeout(this.deadline);
@@ -56,6 +58,7 @@ export class EdgeClient {
         this.attempts = 0;
         this.permissions = message.permissions || this.permissions;
         this.sessionControl = !!message.sessionControl;
+        this.scheduleHeartbeat();
         this.hooks.status('ready', 'Connected');
         this.hooks.event(message);
         for (const command of this.pending.splice(0)) socket.send(JSON.stringify(command));
@@ -75,6 +78,7 @@ export class EdgeClient {
       this.ready = false;
       this.socket = undefined;
       window.clearTimeout(this.deadline);
+      window.clearTimeout(this.heartbeat);
       window.clearTimeout(this.probe); this.probe = undefined;
       if (this.stopped) return;
       if (event.code === 4001 || event.code === 4003 || event.code === 4009) {
@@ -96,9 +100,14 @@ export class EdgeClient {
     try { this.socket.send(JSON.stringify({ type: 'edge.ping', protocol: 1 })); }
     catch { this.retryNow(); }
   }
+  private scheduleHeartbeat(): void {
+    window.clearTimeout(this.heartbeat);
+    this.heartbeat = window.setTimeout(() => this.resume(), 15000);
+  }
   private retryNow(): void {
     window.clearTimeout(this.timer);
     window.clearTimeout(this.deadline);
+    window.clearTimeout(this.heartbeat);
     window.clearTimeout(this.probe); this.probe = undefined;
     const socket = this.socket;
     this.socket = undefined; this.ready = false;
@@ -120,6 +129,7 @@ export class EdgeClient {
     this.stopped = true;
     window.clearTimeout(this.timer);
     window.clearTimeout(this.deadline);
+    window.clearTimeout(this.heartbeat);
     window.clearTimeout(this.probe); this.probe = undefined;
     this.pending = [];
     const socket = this.socket;
