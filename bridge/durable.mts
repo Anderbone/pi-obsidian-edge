@@ -124,7 +124,10 @@ export function createDurableProcess(options: DurableOptions): ChildProcessWitho
       case 'get_messages': {
         const all = []; let cursor;
         do { const page = await conversation.entries({ order: 'ascending' }, 500, cursor, context); all.push(...page.items.flatMap(entry => entry.model || [])); cursor = page.next; } while (cursor);
-        return response(request, { messages: all });
+        response(request, { messages: all });
+        const failure = (view?.docs['pi.live'] as unknown as LiveState | undefined)?.runFailure;
+        if (failure && failure.reason !== 'aborted') emit({ type: 'response', success: false, error: failure.detail || failure.reason });
+        return;
       }
       case 'get_available_models': return response(request, { models: await models.getAvailable() });
       case 'get_available_thinking_levels': {

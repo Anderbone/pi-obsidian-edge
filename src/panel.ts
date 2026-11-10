@@ -236,17 +236,18 @@ export class ChatPanel {
     if (state === 'error') this.setBusy(false);
   }
   private renderChatState(): void {
-    this.chatState.textContent = this.state === 'ready' ? this.busy ? 'Running' : 'Idle' : this.state === 'connecting' || this.state === 'reconnecting' ? 'Connecting…' : 'Offline';
+    this.chatState.textContent = this.activity.dataset.error === 'true' ? 'Error' : this.state === 'ready' ? this.busy ? 'Running' : 'Idle' : this.state === 'connecting' || this.state === 'reconnecting' ? 'Connecting…' : 'Offline';
     this.chatState.dataset.running = String(this.state === 'ready' && this.busy);
   }
   setBusy(value: boolean): void {
-    delete this.activity.dataset.error;
+    const keepError = !value && this.activity.dataset.error === 'true';
+    if (!keepError) delete this.activity.dataset.error;
     this.busy = value; this.typing.hidden = !value; this.permissions.disabled = value;
     this.renderChatState();
-    this.activity.hidden = true;
+    this.activity.hidden = !keepError;
     if (value) { this.empty.hidden = true; this.typingText.textContent = 'Thinking…'; this.transcript.scrollTop = this.transcript.scrollHeight; }
     this.sendButton.disabled = this.imageImports > 0; this.stopButton.hidden = !value;
-    if (!value) this.activity.textContent = '';
+    if (!value && !keepError) this.activity.textContent = '';
   }
   setModels(models: ModelEntry[], current = ''): void {
     this.model.replaceChildren();
@@ -377,7 +378,7 @@ export class ChatPanel {
     for (const message of messages) this.upsert(message, false);
     this.transcript.scrollTop = this.transcript.scrollHeight;
   }
-  error(message: string, busy = false): void { this.setBusy(busy); this.activity.hidden = false; this.activity.textContent = message; this.activity.dataset.error = 'true'; }
+  error(message: string, busy = false): void { this.setBusy(busy); this.activity.hidden = false; this.activity.textContent = message; this.activity.dataset.error = 'true'; this.renderChatState(); }
   addAttachment(attachment: Attachment): void {
     if (this.disposed) return;
     if (this.attachments.length >= 6) return this.error('Attach up to six items per message.');

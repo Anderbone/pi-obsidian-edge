@@ -301,6 +301,7 @@ class EdgeView extends ItemView {
       else if (event && event.type !== 'edge.ready') this.panel?.handle(event);
       if (!event) { this.panel?.statusChanged(session.status, session.detail); this.panel?.setBusy(session.busy); }
       if (event?.type === 'edge.ready') this.panel?.setPermissions(session.permissions, session.permissionModes);
+      if (session.error) this.panel?.error(session.error, session.busy);
       this.panel?.setConversation(session.conversation.title, session.conversation.notePath);
       this.plugin.syncCatalog(session);
     };

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Fix lazy OAuth refresh in the source-checkout service launcher by avoiding scoped module URL queries.
+- Keep run failures visible across idle/state updates and replay the saved failure when reopening chat history. Show Error instead of Idle after a failed run.
+
 ## 0.3.0
 
 - Run the bridge on Pi Durable with private SQLite storage, persistent submission IDs, automatic recovery of unfinished work after restart, and one-time import of existing Pi chat context. Keep the previous CLI runtime available with `--backend cli`.

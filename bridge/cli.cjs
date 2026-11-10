@@ -1,4 +1,5 @@
 #!/usr/bin/env node
-// Preserve existing service commands while loading ESM-only runtime packages.
-const { tsImport } = require('tsx/esm/api');
-tsImport('./cli.mts', __filename).catch(error => { console.error(error); process.exitCode = 1; });
+// Register globally: scoped tsImport adds a query to dependency URLs, which
+// breaks Pi AI's OAuth loader when it chooses compiled .js versus source .ts.
+require('tsx/esm/api').register();
+import('./cli.mts').catch(error => { console.error(error); process.exitCode = 1; });

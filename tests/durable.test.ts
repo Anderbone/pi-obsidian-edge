@@ -205,3 +205,17 @@ test('queued follow-ups can be cleared and a running Durable chat can be stopped
     assert.doesNotMatch(JSON.stringify(run.events.find(event => event.id === 'history')), /cancel this follow-up/);
   } finally { await run.close(); await rm(directory, { recursive: true, force: true }); }
 });
+test('a failed run remains visible when history is requested again', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'edge-failure-test-'));
+  const fake = fakeModels();
+  const models = Object.assign(Object.create(fake.models) as Models, { getModel: () => undefined });
+  const run = await runtime(directory, models);
+  try {
+    run.send({ type: 'prompt', id: 'failed-request', message: 'must show failure' });
+    await waitFor(() => run.events.some(event => event.success === false));
+    run.events.length = 0;
+    run.send({ type: 'get_messages', id: 'reopened-history' });
+    await waitFor(() => run.events.some(event => event.id === 'reopened-history'));
+    assert.ok(run.events.some(event => event.success === false && event.error));
+  } finally { await run.close(); await rm(directory, { recursive: true, force: true }); }
+});
