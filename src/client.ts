@@ -50,6 +50,7 @@ export class EdgeClient {
       const message = parsed as unknown as ServerPacket;
       if (parsed.type === 'edge.pong' && parsed.protocol === 1) {
         window.clearTimeout(this.heartbeat);
+        if (this.ready) this.hooks.status('ready', 'Connected');
         window.clearTimeout(this.probe); this.probe = undefined; this.scheduleHeartbeat(); return;
       }
       if (message.type === 'edge.ready') {

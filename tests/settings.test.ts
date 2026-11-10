@@ -38,7 +38,7 @@ class SettingHost {
 
 // Load the real plugin against a small Obsidian host, without Electron or Pi.
 const code = buildSync({ entryPoints: ['main.ts'], bundle: true, platform: 'browser', format: 'cjs', external: ['obsidian'], write: false }).outputFiles[0].text;
-async function loadPlugin(modernSettings = true, initial?: { settings: unknown; activeIds: string[]; file?: TFile }) {
+async function loadPlugin(modernSettings = true, initial?: { settings: unknown; activeIds: string[]; file?: TFile; files?: TFile[] }) {
   let updates = 0;
   let tab: PluginSettingTab | undefined;
   let saved: unknown;
@@ -46,6 +46,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
   const sockets: SocketHost[] = [];
   const workspaceEvents = new Map<string, (...args: unknown[]) => void>();
   let activeFile = initial?.file ?? null;
+  const files = initial?.files ?? (activeFile ? [activeFile] : []);
   class MarkdownHost { constructor(public file: TFile) {} }
   class SocketHost implements SocketLike {
     readyState = 0; sent: ClientPacket[] = []; closes = 0;
@@ -85,7 +86,8 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
   });
   const Plugin = module.exports.default as typeof EdgePlugin;
   const app = {
-    vault: { getName: () => 'Test vault', configDir: '.obsidian' },
+    vault: { getName: () => 'Test vault', configDir: '.obsidian', getMarkdownFiles: () => files,
+      on: (event: string, handler: (...args: unknown[]) => void) => { workspaceEvents.set(event, handler); return {}; } },
     loadLocalStorage: (key: string): unknown => device.get(key) ?? null,
     saveLocalStorage: (key: string, value: unknown) => { if (value === null) device.delete(key); else device.set(key, value); },
     workspace: {
@@ -105,6 +107,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
   };
   const openFile = (file: TFile, firstEvent: 'active-leaf-change' | 'file-open' = 'active-leaf-change') => {
     activeFile = file;
+    if (!files.some(item => item.path === file.path)) files.push(file);
     const leaf = { view: new MarkdownHost(file) };
     workspaceEvents.get(firstEvent)?.(firstEvent === 'file-open' ? file : leaf);
     workspaceEvents.get(firstEvent === 'file-open' ? 'active-leaf-change' : 'file-open')?.(firstEvent === 'file-open' ? leaf : file);
@@ -485,4 +488,66 @@ test('recent messages win over a newer automatically created empty chat for the 
   openFile({ path: 'B.md' } as TFile);
   openFile({ path: 'A.md' } as TFile);
   assert.equal(plugin.activeConversation().id, recent.id);
+});
+
+test('reload recovers history after a synced move instead of selecting a newer empty chat', async t => {
+  const path = 'projects/demo/In-progress/plan/Task.md';
+  const old = { id: 'history', title: 'Task', notePath: 'projects/demo/plan/Task.md', updated: Date.now() - 1000,
+    messages: [{ id: 'hello', role: 'user', text: 'Continue this task', final: true }] };
+  const empty = { id: 'empty', title: 'New conversation', notePath: path, updated: Date.now(), messages: [] };
+  const { plugin } = await loadPlugin(true, {
+    settings: { conversations: [empty, old], active: empty.id }, activeIds: [], file: { path } as TFile
+  });
+  t.after(() => plugin.onunload());
+  assert.equal(plugin.activeConversation().id, old.id);
+  assert.equal(plugin.activeConversation().notePath, path);
+});
+
+test('move recovery never merges existing paths, ambiguous matches or other projects', async t => {
+  const path = 'projects/demo/In-progress/Task.md';
+  for (const paths of [
+    [path, 'projects/demo/Task.md'],
+    [path, 'projects/demo/done/Task.md'],
+    ['projects/other/Task.md']
+  ]) {
+    const old = { id: 'history', title: 'Task', notePath: paths[0].startsWith('projects/other') ? paths[0] : 'projects/demo/Task.md', updated: Date.now(),
+      messages: [{ id: 'hello', role: 'user', text: 'Separate task', final: true }] };
+    const { plugin } = await loadPlugin(true, {
+      settings: { conversations: [old] }, activeIds: [], file: { path } as TFile,
+      files: paths.map(path => ({ path } as TFile))
+    });
+    t.after(() => plugin.onunload());
+    assert.notEqual(plugin.activeConversation().id, old.id);
+  }
+});
+
+test('reload retains the selected history when workspace has no active file yet', async t => {
+  const old = { id: 'history', title: 'Task', notePath: 'A.md', updated: Date.now(), messages: [] };
+  const { plugin } = await loadPlugin(true, { settings: { conversations: [old], active: old.id }, activeIds: [] });
+  t.after(() => plugin.onunload());
+  assert.equal(plugin.activeConversation().id, old.id);
+});
+
+test('live note renames retain the selected conversation and session', async t => {
+  const { plugin, openFile, workspaceEvents } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  const file = { path: 'projects/demo/Task.md' } as TFile;
+  openFile(file);
+  const conversation = plugin.activeConversation();
+  const session = plugin.sessionFor(conversation);
+  file.path = 'projects/demo/done/Task.md';
+  workspaceEvents.get('rename')?.(file, 'projects/demo/Task.md');
+  openFile(file);
+  assert.equal(plugin.activeConversation().id, conversation.id);
+  assert.equal(conversation.notePath, file.path);
+  assert.equal(plugin.sessions.get(conversation.id), session);
+});
+
+test('moving a folder updates chats bound to its descendant notes', async t => {
+  const { plugin, openFile, workspaceEvents } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'projects/demo/plan/Task.md' } as TFile);
+  const conversation = plugin.activeConversation();
+  workspaceEvents.get('rename')?.({ path: 'projects/demo/In-progress/plan' }, 'projects/demo/plan');
+  assert.equal(conversation.notePath, 'projects/demo/In-progress/plan/Task.md');
 });

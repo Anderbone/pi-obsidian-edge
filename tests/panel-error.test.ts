@@ -7,7 +7,7 @@ test('repeated busy updates preserve the current phase and reading position', ()
   const transcript = { scrollTop: 0, scrollHeight: 100 };
   const panel = Object.assign(Object.create(ChatPanel.prototype) as object, {
     busy: false, activity: { dataset: {} }, chatState: { dataset: {} }, state: 'ready', imageImports: 0,
-    typing: {}, permissions: {}, empty: {}, typingText, transcript, sendButton: {}, stopButton: {}
+    typing: {}, permissions: {}, empty: {}, typingText, transcript, sendButton: {}, stopButton: { classList: { toggle() {} } }
   }) as unknown as ChatPanel;
   panel.setBusy(true);
   assert.equal(typingText.textContent, 'Thinking…');
@@ -30,7 +30,7 @@ test('idle state updates preserve a visible error until a new run begins', () =>
   const panel = Object.assign(Object.create(ChatPanel.prototype) as object, {
     activity, chatState, state: 'ready', imageImports: 0,
     typing: {}, permissions: {}, empty: {}, typingText: {},
-    transcript: { scrollTop: 0, scrollHeight: 10 }, sendButton: {}, stopButton: {},
+    transcript: { scrollTop: 0, scrollHeight: 10 }, sendButton: {}, stopButton: { classList: { toggle() {} } },
     status: { dataset: {} }
   }) as unknown as ChatPanel;
   panel.error('OAuth refresh failed');

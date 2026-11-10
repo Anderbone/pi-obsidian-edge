@@ -519,6 +519,14 @@ export default class EdgePlugin extends Plugin {
     this.reloadViews(); this.scheduleSave();
   }
   private recentNoteConversation(path: string, now = Date.now()): Conversation | undefined {
+    // Sync can move a note while Obsidian is suspended. Recover its chats only
+    // when the old path is gone and the project contains one unambiguous match.
+    const files = this.app.vault.getMarkdownFiles();
+    for (const item of this.settings.conversations) {
+      if (!item.notePath || item.notePath === path) continue;
+      const matches = noteCandidates(item.notePath, files);
+      if (matches.length === 1 && matches[0].path === path) item.notePath = path;
+    }
     const candidates = this.settings.conversations.filter(item => item.notePath === path)
       .sort((a, b) => b.updated - a.updated);
     const protectedChat = candidates.find(item => {
@@ -571,8 +579,7 @@ export default class EdgePlugin extends Plugin {
     this.deviceToken.migrate(window.localStorage, `pi-edge:${this.app.vault.getName()}:${this.app.vault.configDir}:token`);
     const saved: unknown = await this.loadData();
     this.settings = { ...DEFAULTS, ...(isRecord(saved) ? saved : {}) };
-    // Select the current note’s recent chat after resolving the active file.
-    this.settings.active = '';
+    // Keep the saved selection until the workspace has resolved its active file.
     Object.assign(this.settings, historyLimits(this.settings));
     const sessionIds: unknown = this.app.loadLocalStorage('pi-edge:active-chats');
     this.savedSessionIds = Array.isArray(sessionIds) ? sessionIds.filter((id): id is string => typeof id === 'string') : [];
@@ -585,6 +592,7 @@ export default class EdgePlugin extends Plugin {
     };
     this.registerDomEvent(document, 'visibilitychange', resumeConnections);
     this.registerDomEvent(window, 'online', resumeConnections);
+    this.registerDomEvent(window, 'focus', resumeConnections);
     this.lastFile = this.app.workspace.getActiveFile() || undefined;
     if (this.lastFile) this.settings.active = this.recentNoteConversation(this.lastFile.path)?.id || '';
     this.lastMarkdown = this.app.workspace.getActiveViewOfType(MarkdownView) || undefined;
@@ -602,6 +610,13 @@ export default class EdgePlugin extends Plugin {
       }
     }));
     this.registerEvent(this.app.workspace.on('file-open', file => { if (file) this.followFile(file); }));
+    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      for (const conversation of this.settings.conversations) {
+        if (conversation.notePath === oldPath) conversation.notePath = file.path;
+        else if (conversation.notePath?.startsWith(oldPath + '/')) conversation.notePath = file.path + conversation.notePath.slice(oldPath.length);
+      }
+      this.reloadViews(); this.scheduleSave();
+    }));
     this.registerObsidianProtocolHandler('pi-edge', parameters => { if (parameters.code) new PairModal(this, parameters.code).open(); else void this.openPanel(); });
   }
   onunload(): void {

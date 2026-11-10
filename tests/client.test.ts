@@ -102,3 +102,13 @@ test('silent established connections are detected without waiting for a foregrou
   t.mock.timers.tick(3000);
   assert.equal(sockets.length, 2);
 });
+
+test('a successful foreground probe clears a stale socket error status', t => {
+  const { client, sockets, states } = setup(); t.after(() => client.disconnect());
+  client.connect(); sockets[0].open(); sockets[0].message(ready);
+  sockets[0].onerror?.();
+  assert.equal(states.at(-1), 'error');
+  client.resume(); sockets[0].message({ type: 'edge.pong', protocol: 1 });
+  assert.equal(states.at(-1), 'ready');
+  assert.equal(sockets.length, 1);
+});

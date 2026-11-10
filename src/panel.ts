@@ -100,6 +100,7 @@ export class ChatPanel {
     this.effort.addEventListener('change', () => actions.effort(this.effort.value));
     const modelControls = node('div', 'edge-model-controls'); modelControls.append(this.model, this.effort);
     connection.append(this.status, modelControls);
+    header.insertBefore(connection, controls);
     this.transcript = node('div', 'edge-transcript'); this.transcript.setAttribute('role', 'log'); this.transcript.setAttribute('aria-label', 'Conversation');
     this.empty = node('section', 'edge-empty');
     this.empty.append(node('h3', '', paired ? 'Start a conversation' : 'Connect your computer'),
@@ -139,18 +140,17 @@ export class ChatPanel {
     });
     const toolbar = node('div', 'edge-toolbar');
     const references = node('div', 'edge-reference-actions');
-    for (const [label, kind, title, icon] of [['Note', 'note', 'Attach current note', 'file-text'], ['Selection', 'selection', 'Attach selected text', 'text-select'], ['Browse', 'browse', 'Choose a note', 'search']] as const) {
+    for (const [label, kind, title, icon] of [['Note', 'note', 'Attach current note', 'file-text'], ['Selection', 'selection', 'Attach selected text', 'text-select']] as const) {
       references.append(this.iconButton(label, title, () => { void actions.attach(kind).then(item => { if (item) this.addAttachment(item); }).catch((error: unknown) => this.error(error instanceof Error ? error.message : 'Could not attach the note.')); }, icon));
     }
     const upload = node('input'); upload.type = 'file'; upload.accept = 'image/png,image/jpeg,image/webp,image/gif'; upload.multiple = true; upload.hidden = true;
     upload.addEventListener('change', () => { void this.addImages([...(upload.files || [])]); upload.value = ''; });
     references.append(this.iconButton('Image', 'Attach images', () => upload.click(), 'image'));
-    if (typeof navigator.clipboard?.read === 'function') references.append(this.iconButton('Paste', 'Paste image from clipboard', () => { void this.pasteImage(); }, 'clipboard-paste'));
     this.permissions = node('select', 'edge-permissions'); this.permissions.setAttribute('aria-label', 'Permissions'); this.permissions.title = 'Tool permissions';
     this.setPermissions('full', [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }]);
     this.permissions.addEventListener('change', () => { const selected = this.permissions.value; this.permissions.value = this.currentPermissions; if (isPermissionId(selected)) actions.permissions(selected); });
     const primary = node('div', 'edge-primary-actions');
-    this.stopButton = this.iconButton('Stop', 'Stop generation', () => actions.stop(), 'square'); this.stopButton.hidden = true;
+    this.stopButton = this.iconButton('Stop', 'Stop generation', () => actions.stop(), 'square'); this.stopButton.classList.add('edge-stop-inactive'); this.stopButton.disabled = true;
     this.sendButton = this.iconButton('↑', 'Send message', () => { void this.submit(); }, 'arrow-up', 'mod-cta edge-send-button');
     this.sendButton.append(node('span', 'edge-send-label', 'Send'));
     primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.permissions, primary);
@@ -163,7 +163,7 @@ export class ChatPanel {
       }, 'x', 'edge-auto-attachment-remove'));
     composer.append(autoAttachment, this.chips, this.input, upload, toolbar);
     composer.addEventListener('submit', event => { event.preventDefault(); this.submit(); });
-    root.append(header, conversation, connection, this.transcript, this.activity, this.outbox, composer);
+    root.append(header, conversation, this.transcript, this.activity, this.outbox, composer);
     this.trackViewport();
   }
   private iconButton(label: string, title: string, action: () => void, icon: string, cls = ''): HTMLButtonElement {
@@ -258,7 +258,7 @@ export class ChatPanel {
     this.activity.hidden = !keepError;
     if (value) this.empty.hidden = true;
     if (started) { this.typingText.textContent = 'Thinking…'; this.transcript.scrollTop = this.transcript.scrollHeight; }
-    this.sendButton.disabled = this.imageImports > 0; this.stopButton.hidden = !value;
+    this.sendButton.disabled = this.imageImports > 0; this.stopButton.classList.toggle('edge-stop-inactive', !value); this.stopButton.disabled = !value;
     if (!value && !keepError) this.activity.textContent = '';
   }
   setModels(models: ModelEntry[], current = ''): void {
