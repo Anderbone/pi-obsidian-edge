@@ -76,8 +76,8 @@
 .edge-activity[data-error='true'] { color:var(--text-error,#e78d8d); }
 .edge-composer { flex-shrink:0; margin:0 8px 8px; padding:6px; border:1px solid var(--background-modifier-border,#383838); border-radius:var(--radius-m,8px); background:var(--background-primary-alt,var(--background-primary,#252525)); }
 .edge-composer:focus-within { border-color:var(--background-modifier-border-focus,var(--edge-accent)); }
-.edge-panel .edge-composer textarea.edge-input { height:var(--edge-input-height,auto); display:block; width:100%; resize:none; min-height:46px; max-height:140px; font:inherit; font-size:16px; line-height:1.4; appearance:none; background:transparent; border:0; border-radius:0; box-shadow:none; color:inherit; padding:4px 5px; }
-.edge-panel .edge-composer textarea.edge-input:focus { outline:none; box-shadow:none; }
+.edge-panel .edge-composer .edge-input { height:var(--edge-input-height,auto); display:block; width:100%; resize:none; min-height:46px; max-height:140px; font:inherit; font-size:16px; line-height:1.4; appearance:none; background:transparent; border:0; border-radius:0; box-shadow:none; color:inherit; padding:4px 5px; }
+.edge-panel .edge-composer .edge-input:focus { outline:none; box-shadow:none; }
 .edge-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:4px; padding-top:3px; }
 .edge-reference-actions { gap:0; }
 .edge-panel .edge-reference-actions .edge-icon-button { width:30px; }
@@ -237,7 +237,7 @@
   transition:border-color .15s;
 }
 .edge-panel .edge-composer:focus-within { border-color:var(--text-faint,#777); }
-.edge-panel .edge-composer textarea.edge-input {
+.edge-panel .edge-composer .edge-input {
   min-height:48px; height:var(--edge-input-height,48px); max-height:140px;
   padding:4px 4px 8px; font-size:15px; line-height:1.5;
 }
@@ -264,3 +264,6 @@
 }
 
 .edge-panel .edge-stop-inactive { visibility:hidden; }
+
+.edge-panel .edge-composer .edge-input { white-space:pre-wrap; overflow-wrap:anywhere; overflow-y:auto; }
+.edge-panel .edge-composer .edge-input:empty::before { content:attr(data-placeholder); color:var(--text-faint,#888); pointer-events:none; }

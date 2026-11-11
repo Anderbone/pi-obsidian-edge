@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.2
+
+**Action required: update the bridge on your computer too.** Updating only the Obsidian plugin does not update a running computer bridge or switch it to Pi Durable.
+
+1. Wait for running tasks to finish, then stop the old bridge (Ctrl+C, or stop its background service).
+2. With Node.js 22.19+, run this on the computer, replacing the vault path with the same folder as before:
+
+   ```sh
+   npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.2/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+   ```
+
+3. Keep your existing network, tools and state-directory options; omit `--backend cli` to use Pi Durable. For a background service, replace its launch command and restart it. Source-checkout users: pull, run `npm ci`, and restart the existing service. Run only one bridge for the same vault and state directory.
+4. Open Pi Edge settings → Test connection, then resume a chat from History and send a message. Connected verifies reachability and pairing, not the installed bridge version. If you already run bridge 0.3.2, no reinstall is needed.
+
+Keep the same computer account, vault path, `~/.config/pi-obsidian-edge/`, any custom state directory, and `~/.pi/agent/`. Pairing and history are retained; pair again only if the address or token changed. Existing CLI chat context imports when first opened. Durable-only conversations cannot be continued with `--backend cli`.
+
+- Show the computer-update checklist on first enable of this release on each device. Acknowledge it locally and reopen it from settings or the command palette at any time.
+- Include the Pi Durable migration and OAuth/run-error fixes described below, with a matching prebuilt computer bridge.
+- Improve Android keyboard image pasting with a rich editing host while keeping pasted text plain.
+- Refine the mobile layout, preserve conversations when notes move, allow dismissing automatic note attachments, and keep the running phase visible during repeated status updates.
+- Fix duplicate outgoing chat state, reconnection and chat-slot recovery, and keep saved note conversations resumable.
+
 ## 0.3.1
 
 - Fix lazy OAuth refresh in the source-checkout service launcher by avoiding scoped module URL queries.

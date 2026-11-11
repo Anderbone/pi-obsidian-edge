@@ -9,6 +9,8 @@ import { checkConnection } from './src/connection';
 import { DEFAULT_HISTORY_LIMITS, historyLimits, positiveInteger, pruneHistory, type Conversation, type HistoryLimits } from './src/history';
 import { isPermissionId, isRecord, type ClientEvent, type ModelEntry, type PermissionId, type PermissionMode } from './shared/protocol';
 
+import { UpgradeModal, needsUpgradeNotice } from './src/upgrade';
+
 import { noteCandidates, userMessage } from './src/references';
 
 const VIEW = 'pi-edge-chat';
@@ -145,6 +147,7 @@ function settingsDefinitions(plugin: EdgePlugin): SettingsGroup[] {
     groups[groups.length - 1].items.push({ name, desc, render: render || (() => {}) });
   };
   group('Computer connection');
+  row('Computer bridge update', 'Steps to update the computer bridge for Pi Durable, including background services.', setting => { setting.addButton(button => button.setButtonText('View steps').onClick(() => plugin.openUpgradeNotes())); });
   row('Pair computer', 'Paste one code to fill in the bridge address and token.', setting => { setting.addButton(button => button.setButtonText('Paste code').onClick(() => new PairModal(plugin).open())); });
   row('Bridge address', 'An address reachable from this device, starting with ws:// or wss://.', setting => { setting.addText(text => text.setValue(plugin.settings.url).setPlaceholder('ws://192.168.1.20:8771').onChange(value => { plugin.settings.url = value.trim(); plugin.invalidateConnectionTest(); void plugin.saveSettings(); })); });
   row('Bridge token', 'Stored on this device only, outside synced plugin settings.', setting => { setting.addText(text => {
@@ -564,6 +567,11 @@ export default class EdgePlugin extends Plugin {
     await this.saveSettings();
   }
   reloadViews(): void { for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).render(); }
+  openUpgradeNotes(): void {
+    const modal = new UpgradeModal(this.app);
+    this.register(() => modal.close());
+    modal.open();
+  }
   openSettings(): void { new SettingsModal(this).open(); }
   async openPanel(): Promise<void> {
     const file = this.app.workspace.getActiveFile();
@@ -602,7 +610,11 @@ export default class EdgePlugin extends Plugin {
     this.addCommand({ id: 'new-chat', name: 'New chat', callback: () => { this.newConversation(); void this.openPanel(); } });
     this.addCommand({ id: 'active-chats', name: 'Chat history', callback: () => { void this.openPanel().then(() => new ChatHistoryModal(this).open()); } });
     this.addCommand({ id: 'pair', name: 'Pair computer', callback: () => new PairModal(this).open() });
+    this.addCommand({ id: 'bridge-update', name: 'Computer bridge update', callback: () => this.openUpgradeNotes() });
     this.addSettingTab(new EdgeSettings(this));
+    let loaded = true;
+    this.register(() => { loaded = false; });
+    this.app.workspace.onLayoutReady(() => { if (loaded && needsUpgradeNotice(this.app)) this.openUpgradeNotes(); });
     this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => {
       if (leaf?.view instanceof MarkdownView) {
         this.lastMarkdown = leaf.view;

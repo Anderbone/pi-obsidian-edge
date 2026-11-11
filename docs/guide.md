@@ -7,7 +7,7 @@
 - Obsidian 1.8.7 or newer on your phone or desktop.
 - A network route from the phone or desktop client to the computer: the same Wi-Fi/local network, a VPN such as [Tailscale](https://tailscale.com/docs/install), or a TLS reverse proxy. Tailscale is optional; to use it, install it on both devices and sign in to the same Tailscale account.
 - [Node.js](https://nodejs.org/en/download) 22.19 or newer on the computer; choose the LTS installer if you are new to Node.js.
-- A separately installed [Pi CLI](https://pi.dev/docs/latest/quickstart), connected to a model provider. Follow Pi’s quickstart and send a message in `pi` on the computer first. Tested with Pi 1.2.0.
+- A separately installed [Pi CLI](https://pi.dev/docs/latest/quickstart), connected to a model provider. Follow Pi’s quickstart and send a message in `pi` on the computer first. The bundled Durable runtime uses Pi 1.5.1.
 - Your model provider must support images to use image attachments.
 
 The computer must remain awake and reachable. Its Obsidian app does not need to stay open.
@@ -15,7 +15,7 @@ The computer must remain awake and reachable. Its Obsidian app does not need to 
 ## Start the computer bridge
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.9/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.2/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 The standalone package bundles its dependencies; Git and build tools are not needed. If you already downloaded `pi-edge-bridge.tgz`, use `npx --yes --package ./pi-edge-bridge.tgz pi-edge-bridge --cwd "/path/to/your/vault"`. Source builds remain available in the [development guide](development.md).
@@ -25,6 +25,10 @@ Use the vault path on the computer, not the phone. The bridge uses Pi’s existi
 Optional flags include `--pi /absolute/path/to/pi`, `--model provider/model`, `--port 8771`, and `--tools read,grep,find,ls`. Add `--help` to see all options.
 
 Private credentials are stored outside the vault in `~/.config/pi-obsidian-edge/token`. The connection code is also saved as `~/.config/pi-obsidian-edge/connection-code.txt` with owner-only permissions. Non-interactive service output does not print the token or connection code.
+
+## Updating an existing installation
+
+Follow the [0.3.2 upgrade steps](../README.md#upgrading-to-032) on the computer, including updating and restarting any background service. Updating the phone plugin alone does not update the bridge. Keep your existing pairing credentials, vault path and private state directory. Reopen the in-app checklist from **Pi Edge settings → Computer bridge update**.
 
 ## Connection options
 
@@ -88,7 +92,7 @@ Choose **Read only**, **Read & write**, or **Full access** directly in the mobil
 The computer can impose an optional maximum using `--tools`. For example, this ceiling permits note edits but prevents the phone from enabling shell access:
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.2.9/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.2/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
 ```
 
 Without an explicit `--tools` ceiling, all built-in tools are available and the phone can switch between all three permission presets. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled. Full Pi extension interactions are not supported.

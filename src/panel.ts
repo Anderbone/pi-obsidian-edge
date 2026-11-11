@@ -41,7 +41,7 @@ export class ChatPanel {
   private viewportCleanup?: () => void;
   private transcript: HTMLElement;
   private empty: HTMLElement;
-  private input: HTMLTextAreaElement;
+  private input: HTMLDivElement;
   private sendButton: HTMLButtonElement;
   private stopButton: HTMLButtonElement;
   private chips: HTMLElement;
@@ -116,7 +116,11 @@ export class ChatPanel {
     this.outbox.setAttribute('aria-label', 'Outgoing messages');
     const composer = node('form', 'edge-composer');
     this.chips = node('div', 'edge-attachments');
-    this.input = node('textarea', 'edge-input'); this.input.placeholder = 'Ask Pi…'; this.input.rows = 2; this.input.setAttribute('aria-label', 'Message');
+    this.input = node('div', 'edge-input');
+    // A real rich editing host lets Android keyboards commit image content.
+    this.input.contentEditable = 'true'; this.input.setAttribute('role', 'textbox');
+    this.input.setAttribute('aria-multiline', 'true'); this.input.setAttribute('data-placeholder', 'Ask Pi…');
+    this.input.setAttribute('aria-label', 'Message');
     this.input.addEventListener('input', () => { this.input.style.removeProperty('--edge-input-height'); this.input.style.setProperty('--edge-input-height', Math.min(140, this.input.scrollHeight) + 'px'); });
     this.input.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); this.submit(); } });
     this.input.addEventListener('paste', event => {
@@ -126,6 +130,12 @@ export class ChatPanel {
       } else if (!event.clipboardData?.types.length || event.clipboardData.types.some(type => type.startsWith('image/'))) {
         // Native mobile paste can announce an image but omit its file payload.
         event.preventDefault(); event.stopPropagation(); void this.pasteImage();
+      } else {
+        // Keep pasted text plain; rich HTML must never become composer DOM.
+        event.preventDefault(); event.stopPropagation();
+        // insertText preserves the native undo stack, unlike direct Range mutations.
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        this.input.ownerDocument.execCommand('insertText', false, event.clipboardData.getData('text/plain'));
       }
     }, { capture: true });
     this.input.addEventListener('beforeinput', event => {
@@ -184,9 +194,9 @@ export class ChatPanel {
     this.conversationLabel.title = notePath ? `${notePath} · ${title} · 点击复制仓库内路径` : title;
     this.conversationLabel.setAttribute('aria-label', notePath ? `复制文档路径（从仓库根目录）：${notePath}` : title);
   }
-  getDraft(): ComposerDraft { return { text: this.input.value, attachments: [...this.attachments], skipAutoAttachment: this.skipAutoAttachment }; }
+  getDraft(): ComposerDraft { return { text: this.input.innerText, attachments: [...this.attachments], skipAutoAttachment: this.skipAutoAttachment }; }
   restoreDraft(draft: ComposerDraft): void {
-    this.input.value = draft.text; this.attachments = [...draft.attachments]; this.renderAttachments();
+    this.input.textContent = draft.text; this.attachments = [...draft.attachments]; this.renderAttachments();
     this.skipAutoAttachment = !!draft.skipAutoAttachment;
     this.setAutoAttachment(this.autoAttachmentPath);
   }
@@ -230,13 +240,13 @@ export class ChatPanel {
   private async submit(): Promise<void> {
     if (this.submitting) return;
     if (this.imageImports) { this.error('Wait for the images to finish attaching.', this.busy); return; }
-    const text = this.input.value.trim();
+    const text = this.input.innerText.trim();
     if (!text && !this.attachments.length) return;
     if (this.state === 'disconnected') { this.actions.pair(); return; }
     this.submitting = true;
     try {
       await this.actions.send(text || 'Please look at the attached context.', [...this.attachments]);
-      this.input.value = ''; this.input.style.removeProperty('--edge-input-height'); this.attachments = []; this.renderAttachments();
+      this.input.textContent = ''; this.input.style.removeProperty('--edge-input-height'); this.attachments = []; this.renderAttachments();
       this.setBusy(true); this.typingText.textContent = this.state === 'ready' ? 'Thinking…' : 'Waiting for connection…';
     } catch (error) { this.error((error as Error).message); } finally { this.submitting = false; }
   }

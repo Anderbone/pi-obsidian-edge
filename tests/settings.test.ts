@@ -40,6 +40,8 @@ class SettingHost {
 const code = buildSync({ entryPoints: ['main.ts'], bundle: true, platform: 'browser', format: 'cjs', external: ['obsidian'], write: false }).outputFiles[0].text;
 async function loadPlugin(modernSettings = true, initial?: { settings: unknown; activeIds: string[]; file?: TFile; files?: TFile[] }) {
   let updates = 0;
+  let layoutReady = () => {};
+  let modalOpens = 0;
   let tab: PluginSettingTab | undefined;
   let saved: unknown;
   const device = new Map<string, unknown>(initial ? [['pi-edge:active-chats', initial.activeIds]] : []);
@@ -80,7 +82,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     module, exports: module.exports, TextEncoder, URL, crypto: globalThis.crypto, WebSocket: SocketHost, document: { visibilityState: 'visible' },
     require: (name: string) => {
       assert.equal(name, 'obsidian');
-      return { Setting: SettingHost, requireApiVersion: () => modernSettings, Plugin: PluginHost, PluginSettingTab: SettingTabHost, ItemView: class {}, Modal: class {}, FuzzySuggestModal: class {}, MarkdownView: MarkdownHost, Notice: class {} };
+      return { Setting: SettingHost, requireApiVersion: () => modernSettings, Plugin: PluginHost, PluginSettingTab: SettingTabHost, ItemView: class {}, Modal: class { open() { modalOpens++; } close() {} }, FuzzySuggestModal: class {}, MarkdownView: MarkdownHost, Notice: class {} };
     },
     window: { setInterval: () => 0, clearInterval: () => {}, setTimeout, clearTimeout, localStorage: { getItem: (key: string) => oldDevice.get(key) ?? null, removeItem: (key: string) => oldDevice.delete(key) } }
   });
@@ -91,6 +93,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     loadLocalStorage: (key: string): unknown => device.get(key) ?? null,
     saveLocalStorage: (key: string, value: unknown) => { if (value === null) device.delete(key); else device.set(key, value); },
     workspace: {
+      onLayoutReady: (callback: () => void) => { layoutReady = callback; },
       getLeavesOfType: () => [], getActiveFile: () => activeFile, getActiveViewOfType: () => null,
       on: (event: string, handler: (...args: unknown[]) => void) => { workspaceEvents.set(event, handler); return {}; }
     }
@@ -112,7 +115,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     workspaceEvents.get(firstEvent)?.(firstEvent === 'file-open' ? file : leaf);
     workspaceEvents.get(firstEvent === 'file-open' ? 'active-leaf-change' : 'file-open')?.(firstEvent === 'file-open' ? leaf : file);
   };
-  return { plugin, tab, device, oldDevice, sockets, emit, openFile, workspaceEvents, saved: () => saved, updates: () => updates };
+  return { layoutReady: () => layoutReady(), modalOpens: () => modalOpens, plugin, tab, device, oldDevice, sockets, emit, openFile, workspaceEvents, saved: () => saved, updates: () => updates };
 }
 function rows(tab: PluginSettingTab): SettingDefinition[] {
   return tab.getSettingDefinitions().flatMap(item => 'items' in item ? item.items || [] : []).filter((item): item is SettingDefinition => !('type' in item));
@@ -550,4 +553,17 @@ test('moving a folder updates chats bound to its descendant notes', async t => {
   const conversation = plugin.activeConversation();
   workspaceEvents.get('rename')?.({ path: 'projects/demo/In-progress/plan' }, 'projects/demo/plan');
   assert.equal(conversation.notePath, 'projects/demo/In-progress/plan/Task.md');
+});
+
+test('computer upgrade notice waits for layout readiness and respects device acknowledgement', async t => {
+  const host = await loadPlugin();
+  t.after(() => host.plugin.onunload());
+  assert.equal(host.modalOpens(), 0);
+  host.layoutReady();
+  assert.equal(host.modalOpens(), 1);
+  host.device.set('pi-edge:upgrade:0.3.2', true);
+  host.layoutReady();
+  assert.equal(host.modalOpens(), 1);
+  host.plugin.openUpgradeNotes();
+  assert.equal(host.modalOpens(), 2, 'acknowledged steps remain manually available');
 });
