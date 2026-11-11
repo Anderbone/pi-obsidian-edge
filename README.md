@@ -35,7 +35,7 @@ You need a computer to run Pi, plus Obsidian on the phone or desktop where you w
 Open a terminal (Terminal on macOS/Linux, or PowerShell on Windows). Copy the command below, replace `/path/to/your/vault` with the full path to your Obsidian vault folder **on the computer**, and run it. A vault is the folder containing your notes. Keep the quotation marks, especially if the path contains spaces.
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.2/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.3/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 For example, a vault path might be `/Users/alex/Documents/My Vault` on macOS or `C:\Users\Alex\Documents\My Vault` on Windows. In desktop Obsidian, you can right-click a note and choose **Show in system explorer** to help find your vault folder.
@@ -54,7 +54,7 @@ You can also scan the terminal QR code to open pairing on supported devices. Pai
 
 If you cannot connect, open Pi Edge settings and choose **Test connection**. Green **Connected** means the bridge is reachable. Check that your computer is awake, the terminal is still running, and both devices are on the same Wi-Fi or connected through Tailscale. See the [connection help](docs/guide.md#connection-help) for more options.
 
-## Upgrading to 0.3.2
+## Upgrading to 0.3.3
 
 **Update the bridge on the computer as well as the Obsidian plugin.** The plugin alone cannot switch an already running bridge to the Pi Durable backend. The first time you enable this version on each device, Pi Edge opens these steps; reopen them from **Pi Edge settings → Computer bridge update** or the **Pi Edge: Computer bridge update** command. Acknowledging the notice only hides it on that device; it does not perform the update.
 
@@ -62,11 +62,11 @@ If you cannot connect, open Pi Edge settings and choose **Test connection**. Gre
 2. With Node.js 22.19 or newer, run the command below using the **same computer account and vault path** as before. Preserve your existing `--host`, `--port`, `--url`, `--tools` and `--state-dir` options. Omit `--backend cli` to use Pi Durable.
 
    ```sh
-   npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.2/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+   npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.3/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
    ```
 
 3. If you use a background service, update its launch command to this archive version and restart the service. For a source checkout, pull the new code, run `npm ci`, then restart the existing bridge service. Run only one bridge for the same vault and state directory.
-4. In Obsidian, open **Pi Edge settings → Test connection**, then open a conversation from **History** and send a message. **Connected** checks reachability and pairing; it does not confirm the bridge version. If you already run bridge 0.3.2, just perform this check.
+4. In Obsidian, open **Pi Edge settings → Test connection**, then open a conversation from **History** and send a message. **Connected** checks reachability and pairing; it does not confirm the bridge version. If you already run bridge 0.3.3, just perform this check.
 
 Keep `~/.config/pi-obsidian-edge/` (including `token` and `durable/`), any custom state directory, and `~/.pi/agent/`. Pairing and mobile history are retained; pair again only if the address or token changed. Existing CLI chat context imports when first opened. Use `--backend cli` only if you need the previous runtime; Durable-only chats cannot be continued there.
 

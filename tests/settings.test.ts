@@ -561,7 +561,7 @@ test('computer upgrade notice waits for layout readiness and respects device ack
   assert.equal(host.modalOpens(), 0);
   host.layoutReady();
   assert.equal(host.modalOpens(), 1);
-  host.device.set('pi-edge:upgrade:0.3.2', true);
+  host.device.set('pi-edge:upgrade:0.3.3', true);
   host.layoutReady();
   assert.equal(host.modalOpens(), 1);
   host.plugin.openUpgradeNotes();

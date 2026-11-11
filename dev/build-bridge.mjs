@@ -17,7 +17,9 @@ try {
   await writeFile(path.join(staging, 'cli.cjs'), "#!/usr/bin/env node\nimport('./cli.mjs').catch(error => { console.error(error); process.exitCode = 1; });\n");
   await chmod(path.join(staging, 'cli.cjs'), 0o755);
   const packages = execFileSync(process.execPath, [process.env.npm_execpath, 'ls', '--omit=dev', '--all', '--parseable'], { cwd: root, encoding: 'utf8' }).trim().split('\n').filter(directory => directory !== root);
-  for (const directory of packages) await cp(directory, path.join(staging, path.relative(root, directory)), { recursive: true });
+  // Keep package bin links relative to the copied dependency tree. Resolving them
+  // to source paths breaks repeated nested-package copies on Node.js 22.
+  for (const directory of packages) await cp(directory, path.join(staging, path.relative(root, directory)), { recursive: true, verbatimSymlinks: true });
   await copyFile(path.join(root, 'LICENSE'), path.join(staging, 'LICENSE'));
   const notices = await Promise.all(['ws', 'qrcode-terminal'].map(async name =>
     `${name}\n${await readFile(path.join(root, 'node_modules', name, 'LICENSE'), 'utf8')}`));
