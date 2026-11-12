@@ -21,8 +21,10 @@ async function main() {
     assert.match(legacyHelp, /Usage: pi-edge-bridge/);
     const cache = path.join(temporary, 'npm-cache');
     const npx = path.join(path.dirname(process.env.npm_execpath), 'npx-cli.js');
+    // Cold installs unpack the bundled runtime; allow for slower CI disks.
+    const installTimeout = 120000;
     const help = execFileSync(process.execPath, [npx, '--offline', '--yes', '--cache', cache, '--package', archive, 'pi-edge-bridge', '--help'], {
-      cwd: temporary, encoding: 'utf8', timeout: 30000
+      cwd: temporary, encoding: 'utf8', timeout: installTimeout
     });
     assert.match(help, /Usage: pi-edge-bridge/);
     const installs = await fs.readdir(path.join(cache, '_npx'));
@@ -37,7 +39,7 @@ async function main() {
     try {
       const remote = await promisify(execFile)(process.execPath, [npx, '--yes', '--cache', path.join(temporary, 'download-cache'),
         `http://127.0.0.1:${download.address().port}/pi-edge-bridge.tgz`, '--help'], {
-        cwd: temporary, encoding: 'utf8', timeout: 30000,
+        cwd: temporary, encoding: 'utf8', timeout: installTimeout,
         env: { ...process.env, npm_config_update_notifier: 'false', npm_config_audit: 'false', npm_config_fund: 'false' }
       });
       assert.match(remote.stdout, /Usage: pi-edge-bridge/);

@@ -1,10 +1,11 @@
 # Changelog
 
-## 0.3.4
+## 0.3.5
 
 - Fix community review failures by removing lint suppression comments and replacing the deprecated text-paste API with standard DOM selection and range operations. Keep pasted text plain and preserve image attachments.
 - Mark asynchronous sends explicitly and honor reduced motion without CSS `!important`.
 - Check for inline lint overrides and unhandled promises locally so these review issues fail CI before release.
+- Allow two minutes for cold bridge installation checks on slower CI disks, while retaining startup, authentication and connection assertions.
 - Keep the same bridge behavior as 0.3.3. Existing 0.3.3 computer bridges remain compatible; no bridge update or pairing reset is required for this fix.
 
 ## 0.3.3

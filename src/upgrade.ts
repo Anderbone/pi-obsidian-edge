@@ -1,6 +1,6 @@
 import { Modal, Notice, Setting, type App } from 'obsidian';
 
-export const BRIDGE_VERSION = '0.3.4';
+export const BRIDGE_VERSION = '0.3.5';
 export const BRIDGE_COMMAND = `npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-${BRIDGE_VERSION}/pi-edge-bridge.tgz --cwd "/path/to/your/vault"`;
 const BRIDGE_STATE_PATHS = '~/.config/pi-obsidian-edge/ (including token and durable/)\n~/.pi/agent/';
 const UPGRADE_KEY = `pi-edge:upgrade:${BRIDGE_VERSION}`;
@@ -27,7 +27,7 @@ export class UpgradeModal extends Modal {
     this.contentEl.createEl('p', { text: 'Keep the private configuration folders below, including the token, chat storage and any custom state directory. Use the same computer account and vault path. Your pairing and history are retained; pair again only if the address or token changed. Existing chat context imports when first opened. Chats from the persistent backend cannot be continued with --backend cli.' });
     this.contentEl.createEl('pre').createEl('code', { text: BRIDGE_STATE_PATHS });
     this.contentEl.createEl('p', { text: 'You can reopen these steps from the computer bridge update entry in Pi Edge settings or the command palette. Closing this window does not update or restart anything.' });
-    this.contentEl.createEl('a', { text: 'Full upgrade guide', href: 'https://github.com/Anderbone/pi-obsidian-edge#upgrading-to-034', attr: { target: '_blank', rel: 'noopener' } });
+    this.contentEl.createEl('a', { text: 'Full upgrade guide', href: 'https://github.com/Anderbone/pi-obsidian-edge#upgrading-to-035', attr: { target: '_blank', rel: 'noopener' } });
     new Setting(this.contentEl).addButton(button => button.setButtonText('I’ve read these steps').setCta().onClick(() => {
       this.app.saveLocalStorage(UPGRADE_KEY, true);
       this.close();
