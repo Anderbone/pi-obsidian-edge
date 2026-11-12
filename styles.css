@@ -137,7 +137,7 @@
 .edge-active-chat-row[data-current='true'] { border-inline-start: 2px solid var(--interactive-accent); padding-inline-start: 10px; }
 .edge-active-chat-row .setting-item-info { min-width: 0; }
 .edge-active-chat-row .setting-item-name { overflow-wrap: anywhere; }
-@media (prefers-reduced-motion: reduce) { .edge-active-chat-dot { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .edge-active-chat-dot[data-state='running'] { animation: none; } }
 
 .edge-outbox {
   flex: 0 1 auto;

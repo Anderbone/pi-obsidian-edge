@@ -122,7 +122,7 @@ export class ChatPanel {
     this.input.setAttribute('aria-multiline', 'true'); this.input.setAttribute('data-placeholder', 'Ask Pi…');
     this.input.setAttribute('aria-label', 'Message');
     this.input.addEventListener('input', () => { this.input.style.removeProperty('--edge-input-height'); this.input.style.setProperty('--edge-input-height', Math.min(140, this.input.scrollHeight) + 'px'); });
-    this.input.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); this.submit(); } });
+    this.input.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void this.submit(); } });
     this.input.addEventListener('paste', event => {
       const files = clipboardImageFiles(event.clipboardData);
       if (files.length) {
@@ -133,9 +133,16 @@ export class ChatPanel {
       } else {
         // Keep pasted text plain; rich HTML must never become composer DOM.
         event.preventDefault(); event.stopPropagation();
-        // insertText preserves the native undo stack, unlike direct Range mutations.
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        this.input.ownerDocument.execCommand('insertText', false, event.clipboardData.getData('text/plain'));
+        const selection = this.input.ownerDocument.getSelection();
+        const range = selection?.rangeCount ? selection.getRangeAt(0) : this.input.ownerDocument.createRange();
+        if (!this.input.contains(range.commonAncestorContainer)) {
+          range.selectNodeContents(this.input); range.collapse(false);
+        }
+        range.deleteContents();
+        const text = this.input.ownerDocument.createTextNode(event.clipboardData.getData('text/plain'));
+        range.insertNode(text); range.setStartAfter(text); range.collapse(true);
+        selection?.removeAllRanges(); selection?.addRange(range);
+        this.input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: text.data }));
       }
     }, { capture: true });
     this.input.addEventListener('beforeinput', event => {
@@ -172,7 +179,7 @@ export class ChatPanel {
         this.setAutoAttachment(this.autoAttachmentPath);
       }, 'x', 'edge-auto-attachment-remove'));
     composer.append(autoAttachment, this.chips, this.input, upload, toolbar);
-    composer.addEventListener('submit', event => { event.preventDefault(); this.submit(); });
+    composer.addEventListener('submit', event => { event.preventDefault(); void this.submit(); });
     root.append(header, conversation, this.transcript, this.activity, this.outbox, composer);
     this.trackViewport();
   }

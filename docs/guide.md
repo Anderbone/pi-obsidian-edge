@@ -15,7 +15,7 @@ The computer must remain awake and reachable. Its Obsidian app does not need to 
 ## Start the computer bridge
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.3/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.4/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 The standalone package bundles its dependencies; Git and build tools are not needed. If you already downloaded `pi-edge-bridge.tgz`, use `npx --yes --package ./pi-edge-bridge.tgz pi-edge-bridge --cwd "/path/to/your/vault"`. Source builds remain available in the [development guide](development.md).
@@ -28,7 +28,7 @@ Private credentials are stored outside the vault in `~/.config/pi-obsidian-edge/
 
 ## Updating an existing installation
 
-Follow the [0.3.3 upgrade steps](../README.md#upgrading-to-033) on the computer, including updating and restarting any background service. Updating the phone plugin alone does not update the bridge. Keep your existing pairing credentials, vault path and private state directory. Reopen the in-app checklist from **Pi Edge settings → Computer bridge update**.
+Follow the [0.3.4 upgrade steps](../README.md#upgrading-to-034) on the computer, including updating and restarting any background service. Updating the phone plugin alone does not update the bridge. Keep your existing pairing credentials, vault path and private state directory. Reopen the in-app checklist from **Pi Edge settings → Computer bridge update**.
 
 ## Connection options
 
@@ -92,7 +92,7 @@ Choose **Read only**, **Read & write**, or **Full access** directly in the mobil
 The computer can impose an optional maximum using `--tools`. For example, this ceiling permits note edits but prevents the phone from enabling shell access:
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.3/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.4/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
 ```
 
 Without an explicit `--tools` ceiling, all built-in tools are available and the phone can switch between all three permission presets. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled. Full Pi extension interactions are not supported.

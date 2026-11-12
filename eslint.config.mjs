@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 // Match the directory's Obsidian-specific checks; tsc checks the plugin types.
 const rules = Object.assign({}, ...obsidianmd.configs.recommended.map(config =>
   Object.fromEntries(Object.entries(config.rules || {}).filter(([name]) => name.startsWith('obsidianmd/')))));
-export default [{
+export default [{ linterOptions: { noInlineConfig: true } }, {
   files: ['main.ts', 'src/**/*.ts', 'bridge/**/*.mts', 'shared/**/*.ts', 'tests/**/*.ts', 'dev/preview.mts'],
   plugins: { '@typescript-eslint': tseslint.plugin },
   languageOptions: { parser: tseslint.parser, parserOptions: { project: './tsconfig.json' } },
@@ -24,6 +24,7 @@ export default [{
     '@typescript-eslint/no-unsafe-assignment': 'error',
     '@typescript-eslint/no-unsafe-argument': 'error',
     '@typescript-eslint/unbound-method': ['error', { ignoreStatic: true }],
-    '@typescript-eslint/no-misused-promises': 'error'
+    '@typescript-eslint/no-misused-promises': 'error',
+    '@typescript-eslint/no-floating-promises': 'error'
   }
 }];

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4
+
+- Fix community review failures by removing lint suppression comments and replacing the deprecated text-paste API with standard DOM selection and range operations. Keep pasted text plain and preserve image attachments.
+- Mark asynchronous sends explicitly and honor reduced motion without CSS `!important`.
+- Check for inline lint overrides and unhandled promises locally so these review issues fail CI before release.
+- Keep the same bridge behavior as 0.3.3. Existing 0.3.3 computer bridges remain compatible; no bridge update or pairing reset is required for this fix.
+
 ## 0.3.3
 
 **Action required: update the bridge on your computer too.** Updating only the Obsidian plugin does not update a running computer bridge or switch it to Pi Durable.
