@@ -1,4 +1,6 @@
-![Pi Edge running beside an Obsidian note, with a completed note-editing conversation](docs/screenshots/fold-chat.webp)
+## [Install Pi Edge → Obsidian Community Plugins](https://community.obsidian.md/plugins/pi-edge)
+
+![Pi Edge running beside an Obsidian note, with a completed note-editing conversation](docs/screenshots/fold-chat-0.3.6.webp)
 
 # Pi Edge
 
