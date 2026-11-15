@@ -36,6 +36,7 @@ panel.setToolDetails(params.has('tools'));
 if (!params.has('unpaired')) panel.statusChanged('ready', 'Connected');
 panel.setActiveCount(params.has('unpaired') ? 0 : 2, params.has('waiting') ? 1 : 0);
 if (params.has('demo')) panel.setConversation('Plan the next steps', 'projects/example/Project notes.md');
+if (params.has('attach-note')) panel.setAutoAttachment(params.get('attach-note') || 'projects/example/Test.md');
 
 if (!params.has('unpaired')) { panel.setModels([{id:'openai/gpt-6.1-sol',name:'GPT-6.1 Sol',provider:'openai'},{id:'example/chat',name:'Chat model',provider:'example'}], 'openai/gpt-6.1-sol'); panel.setEffortLevels(['low','medium','high','xhigh','max']); }
 

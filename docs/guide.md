@@ -15,7 +15,7 @@ The computer must remain awake and reachable. Its Obsidian app does not need to 
 ## Start the computer bridge
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.5/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.6/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 This command uses **Pi Durable** by default. The standalone package bundles Durable and its dependencies; no separate Durable installation, Git or build tools are needed. To make the backend choice explicit, append `--backend durable`. If you already downloaded `pi-edge-bridge.tgz`, use `npx --yes --package ./pi-edge-bridge.tgz pi-edge-bridge --cwd "/path/to/your/vault"`. Source builds remain available in the [development guide](development.md).
@@ -26,9 +26,11 @@ Optional flags include `--model provider/model`, `--port 8771`, `--tools read,gr
 
 Private credentials are stored outside the vault in `~/.config/pi-obsidian-edge/token`. The connection code is also saved as `~/.config/pi-obsidian-edge/connection-code.txt` with owner-only permissions. Non-interactive service output does not print the token or connection code.
 
+Unpaired devices open pairing instructions when Pi Edge is enabled. Copy the agent instructions to your computer’s coding agent, then paste the pairing code it provides into the pairing window. You can also run the computer command above yourself. The automatic upgrade notice is reserved for previously paired devices; migration steps remain available manually in settings.
+
 ## Updating an existing installation
 
-If your computer already runs Pi Durable with bridge 0.3.3 or newer, update the plugin and test the connection and a chat; this fix does not require reinstalling the bridge. Otherwise, follow the [0.3.5 upgrade steps](../README.md#upgrading-to-035), including updating and restarting any background service and removing `--backend cli`. Updating the phone plugin alone does not update or switch the computer backend. Keep your existing pairing credentials, vault path and private state directory. Reopen the in-app checklist from **Pi Edge settings → Computer bridge update**.
+If your computer already runs Pi Durable with bridge 0.3.3 or newer, update the plugin and test the connection and a chat; this fix does not require reinstalling the bridge. Otherwise, follow the [0.3.6 upgrade steps](../README.md#upgrading-to-036), including updating and restarting any background service and removing `--backend cli`. Updating the phone plugin alone does not update or switch the computer backend. Keep your existing pairing credentials, vault path and private state directory. Open **Pi Edge settings → Pair computer** for agent instructions or the expandable manual setup.
 
 ## Connection options
 
@@ -62,7 +64,7 @@ Run **Pi Edge: Pair computer**, paste the connection code from the computer, the
 
 ## Connection help
 
-In Pi Edge settings, click **Test connection**. Green **Connected** confirms that the WebSocket bridge accepts your pairing token. The test does not start a Pi session or send a model request. Older bridges are checked using their existing authenticated health endpoint, so the test does not require a computer bridge restart.
+Open Pi Edge settings. The top row checks automatically when opened, every 15 seconds while visible, and when the app returns to the foreground. Green **Connected** confirms that the WebSocket bridge accepts your pairing token. This check does not start a Pi session or send a model request. Older bridges are checked using their existing authenticated health endpoint, so the test does not require a computer bridge restart.
 
 - **No connection code:** run the bridge in an interactive terminal. If it runs as a service, read `~/.config/pi-obsidian-edge/connection-code.txt` on the computer.
 - **Cannot connect:** check that the bridge address is reachable, the computer is awake, and the bridge is still running. On a LAN, check the computer firewall and whether the Wi-Fi isolates devices. For VPN access, connect both devices to that VPN. Pair the device again if the address or token changed.
@@ -92,7 +94,7 @@ Choose **Read only**, **Read & write**, or **Full access** directly in the mobil
 The computer can impose an optional maximum using `--tools`. For example, this ceiling permits note edits but prevents the phone from enabling shell access:
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.5/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.6/pi-edge-bridge.tgz --cwd "/path/to/vault" --tools read,grep,find,ls,write,edit
 ```
 
 Without an explicit `--tools` ceiling, all built-in tools are available and the phone can switch between all three permission presets. Tool selection is not a filesystem sandbox; read tools can access files outside the selected vault if instructed. Automatic extension, skill, and MCP discovery are disabled. Full Pi extension interactions are not supported.

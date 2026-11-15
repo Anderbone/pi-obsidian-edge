@@ -335,6 +335,65 @@ test('a run without a reply retains recoverable content and explains the missing
   assert.match(chat.session.error, /without a confirmed reply/);
 });
 
+test('replaying an accepted prompt refreshes history without declaring a running task failed', t => {
+  const pending = { id: 'pending:old', requestId: 'old', role: 'user' as const, text: 'Original', final: true, delivery: 'accepted' as const };
+  const chat = setup('replayed-acceptance', { outbox: [pending] }); t.after(() => chat.session.dispose());
+  chat.event({ kind: 'prompt.status', requestId: 'old', disposition: 'started' });
+  const query = chat.socket.sent.at(-1); assert.ok(query?.type === 'get_messages');
+  chat.event({ kind: 'history', requestId: query.id, messages: [] });
+  assert.equal(chat.session.error, '');
+  assert.equal(chat.conversation.outbox?.[0].delivery, 'accepted');
+  chat.event({ kind: 'run.started' });
+  chat.event({ kind: 'run.finished' });
+  const completed = chat.socket.sent.at(-1); assert.ok(completed?.type === 'get_messages');
+  chat.event({ kind: 'history', requestId: completed.id, messages: [
+    { id: 'u', role: 'user', text: 'Expanded original', final: true },
+    { id: 'a', role: 'assistant', text: 'Saved and verified', final: true }
+  ] });
+  assert.equal(chat.conversation.outbox?.length, 0);
+  assert.equal(chat.session.error, '');
+});
+
+test('a completion snapshot cannot mark an accepted message unconfirmed while work is running', t => {
+  const chat = setup('running-snapshot'); t.after(() => chat.session.dispose());
+  chat.session.send('Do work', []);
+  const prompt = chat.socket.sent.at(-1); assert.ok(prompt?.type === 'prompt');
+  chat.event({ kind: 'prompt.status', requestId: prompt.id, disposition: 'started' });
+  chat.event({ kind: 'run.finished' });
+  const query = chat.socket.sent.at(-1); assert.ok(query?.type === 'get_messages');
+  chat.event({ kind: 'run.started' });
+  chat.event({ kind: 'history', requestId: query.id, messages: [] });
+  assert.equal(chat.session.error, '');
+  assert.equal(chat.conversation.outbox?.[0].delivery, 'accepted');
+});
+
+test('confirmed handling clears the missing-reply warning but preserves real errors and other uncertain sends', t => {
+  for (const outcome of ['handled', 'other-unconfirmed', 'real-error', 'newer-snapshot', 'dismissed']) {
+    const chat = setup(`confirmed-${outcome}`); t.after(() => chat.session.dispose());
+    chat.session.send('Do work', []);
+    const prompt = chat.socket.sent.at(-1); assert.ok(prompt?.type === 'prompt');
+    chat.event({ kind: 'prompt.status', requestId: prompt.id, disposition: 'started' });
+    chat.event({ kind: 'run.finished' });
+    const query = chat.socket.sent.at(-1); assert.ok(query?.type === 'get_messages');
+    chat.event({ kind: 'run.finished' });
+    const newer = chat.socket.sent.at(-1); assert.ok(newer?.type === 'get_messages');
+    chat.event({ kind: 'history', requestId: query.id, messages: [] });
+    assert.match(chat.session.error, /without a confirmed reply/);
+    if (outcome === 'other-unconfirmed') chat.conversation.outbox!.push({ id: 'other', role: 'user', text: 'Other', final: true, delivery: 'unconfirmed' });
+    if (outcome === 'real-error') chat.event({ kind: 'error', message: 'OAuth refresh failed' });
+    if (outcome === 'newer-snapshot') {
+      chat.event({ kind: 'history', requestId: newer.id, messages: [
+        { id: 'u', role: 'user', text: prompt.message, final: true },
+        { id: 'a', role: 'assistant', text: 'Saved and verified', final: true }
+      ] });
+    } else if (outcome === 'dismissed') chat.session.dismissOutgoing(chat.conversation.outbox![0].id);
+    else chat.event({ kind: 'prompt.status', requestId: prompt.id, disposition: 'handled' });
+    if (outcome === 'other-unconfirmed') assert.match(chat.session.error, /without a confirmed reply/);
+    else if (outcome === 'real-error') assert.equal(chat.session.error, 'OAuth refresh failed');
+    else assert.equal(chat.session.error, '', outcome);
+  }
+});
+
 test('queue cancellation uses request identity despite rewritten text and excludes later sends', t => {
   const chat = setup('cancel-race'); t.after(() => chat.session.dispose());
   chat.event({ kind: 'run.started' });

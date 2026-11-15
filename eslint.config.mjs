@@ -15,7 +15,7 @@ export default [{ linterOptions: { noInlineConfig: true } }, {
   languageOptions: { parser: tseslint.parser, parserOptions: { project: './tsconfig.json' } },
   rules: {
     ...rules,
-    'obsidianmd/ui/sentence-case': ['warn', { brands: ['Pi', 'Pi Edge', 'Tailscale'], acronyms: ['MB'], ignoreRegex: ['^pi-edge:', '^ws://'] }],
+    'obsidianmd/ui/sentence-case': ['warn', { brands: ['Pi', 'Pi Edge', 'Pi Durable', 'Obsidian', 'Tailscale'], acronyms: ['MB'], ignoreRegex: ['^pi-edge:', '^ws://'] }],
     'obsidianmd/settings-tab/prefer-setting-definitions': 'error',
     // Match the source-code safety checks reported by the directory review.
     '@typescript-eslint/no-redundant-type-constituents': 'error',

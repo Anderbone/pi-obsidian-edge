@@ -170,15 +170,8 @@ export class ChatPanel {
     this.stopButton = this.iconButton('Stop', 'Stop generation', () => actions.stop(), 'square'); this.stopButton.classList.add('edge-stop-inactive'); this.stopButton.disabled = true;
     this.sendButton = this.iconButton('↑', 'Send message', () => { void this.submit(); }, 'arrow-up', 'mod-cta edge-send-button');
     this.sendButton.append(node('span', 'edge-send-label', 'Send'));
-    primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.permissions, primary);
-    const autoAttachment = node('div', 'edge-auto-attachment'); autoAttachment.hidden = true;
-    autoAttachment.setAttribute('role', 'status');
-    autoAttachment.append(node('span', '', 'Current note will be attached'),
-      this.iconButton('×', 'Do not attach current note', () => {
-        this.skipAutoAttachment = true;
-        this.setAutoAttachment(this.autoAttachmentPath);
-      }, 'x', 'edge-auto-attachment-remove'));
-    composer.append(autoAttachment, this.chips, this.input, upload, toolbar);
+    primary.append(this.stopButton, this.sendButton); toolbar.append(references, this.chips, this.permissions, primary);
+    composer.append(this.input, upload, toolbar);
     composer.addEventListener('submit', event => { event.preventDefault(); void this.submit(); });
     root.append(header, conversation, this.transcript, this.activity, this.outbox, composer);
     this.trackViewport();
@@ -240,8 +233,7 @@ export class ChatPanel {
   }
   setAutoAttachment(path?: string): void {
     this.autoAttachmentPath = path;
-    const hint = this.input.parentElement?.querySelector<HTMLElement>('.edge-auto-attachment');
-    if (hint) hint.hidden = !path || this.skipAutoAttachment;
+    this.renderAttachments();
   }
   private submitting = false;
   private async submit(): Promise<void> {
@@ -265,6 +257,12 @@ export class ChatPanel {
   private renderChatState(): void {
     this.chatState.textContent = this.activity.dataset.error === 'true' ? 'Error' : this.state === 'ready' ? this.busy ? 'Running' : 'Idle' : this.state === 'connecting' || this.state === 'reconnecting' ? 'Connecting…' : 'Offline';
     this.chatState.dataset.running = String(this.state === 'ready' && this.busy);
+  }
+  clearError(): void {
+    if (this.activity.dataset.error !== 'true') return;
+    delete this.activity.dataset.error;
+    this.activity.textContent = ''; this.activity.hidden = true;
+    this.renderChatState();
   }
   setBusy(value: boolean): void {
     const started = value && !this.busy;
@@ -413,13 +411,29 @@ export class ChatPanel {
     if (this.attachments.length >= 6) return this.error('Attach up to six items per message.');
     this.attachments = this.attachments.filter(item => item.id !== attachment.id); this.attachments.push(attachment); this.renderAttachments();
   }
+  private attachmentChip(name: string, remove: () => void, source?: string): HTMLButtonElement {
+    const chip = button('', `Remove ${name}`, remove, 'edge-attachment');
+    if (source) {
+      const img = node('img', 'edge-attachment-preview'); img.src = source; img.alt = ''; chip.append(img);
+    } else {
+      const symbol = node('span', 'edge-attachment-symbol', '↗'); symbol.setAttribute('aria-hidden', 'true'); chip.append(symbol);
+    }
+    chip.append(node('span', 'edge-attachment-name', name));
+    const close = node('span', 'edge-attachment-remove', '×'); close.setAttribute('aria-hidden', 'true'); chip.append(close);
+    return chip;
+  }
   private renderAttachments(): void {
     this.chips.replaceChildren();
+    if (this.autoAttachmentPath && !this.skipAutoAttachment && !this.attachments.some(item => item.path === this.autoAttachmentPath)) {
+      const name = this.autoAttachmentPath.split('/').pop() || this.autoAttachmentPath;
+      this.chips.append(this.attachmentChip(name, () => {
+        this.skipAutoAttachment = true;
+        this.renderAttachments();
+      }));
+    }
     for (const item of this.attachments) {
-      const chip = button(`${item.data ? '' : '↗ '}${item.name} ×`, `Remove ${item.name}`, () => { this.attachments = this.attachments.filter(other => other.id !== item.id); this.renderAttachments(); }, 'edge-attachment');
       const source = item.data && item.mimeType ? imageSource({ data: item.data, mimeType: item.mimeType }) : undefined;
-      if (source) { const img = node('img', 'edge-attachment-preview'); img.src = source; img.alt = ''; chip.prepend(img); }
-      this.chips.append(chip);
+      this.chips.append(this.attachmentChip(item.name, () => { this.attachments = this.attachments.filter(other => other.id !== item.id); this.renderAttachments(); }, source));
     }
   }
   private openImage(source: string, label: string): void {

@@ -39,6 +39,12 @@ test('idle state updates preserve a visible error until a new run begins', () =>
   assert.equal(activity.hidden, false);
   assert.equal(activity.textContent, 'OAuth refresh failed');
   assert.equal(chatState.textContent, 'Error');
+  panel.clearError();
+  assert.equal(activity.hidden, true);
+  assert.equal(activity.textContent, '');
+  assert.equal(activity.dataset.error, undefined);
+  assert.equal(chatState.textContent, 'Idle');
+  panel.error('Another failure');
   panel.setBusy(true);
   assert.equal(activity.hidden, true);
   assert.equal(activity.dataset.error, undefined);

@@ -18,6 +18,8 @@ this repository; honor explicit destinations in the current request.
 After plugin changes, build and install on the user's connected Fold using
 `python3 dev/install-fold.py`. The user requests this for every update. The script
 selects the Fold by device model and verifies the three installed file hashes.
+The only active mobile vault is `/storage/emulated/0/Documents/Obsidian-syncthing`;
+install only there. The old `Obsjiyu` vault is no longer used.
 Preserve plugin data and pairing. If ADB is disconnected, report that installation
 is pending. Installed files activate after the user reloads Pi Edge in Obsidian;
 do not force-stop Obsidian with potentially unsaved notes.

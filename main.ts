@@ -9,7 +9,7 @@ import { checkConnection } from './src/connection';
 import { DEFAULT_HISTORY_LIMITS, historyLimits, positiveInteger, pruneHistory, type Conversation, type HistoryLimits } from './src/history';
 import { isPermissionId, isRecord, type ClientEvent, type ModelEntry, type PermissionId, type PermissionMode } from './shared/protocol';
 
-import { UpgradeModal, needsUpgradeNotice } from './src/upgrade';
+import { UpgradeModal, needsUpgradeNotice, acknowledgeUpgradeNotice, renderComputerSetup } from './src/upgrade';
 
 import { noteCandidates, userMessage } from './src/references';
 
@@ -26,18 +26,20 @@ function lastActivityLabel(conversation: Conversation): string {
 }
 const PERMISSIONS: PermissionMode[] = [{ id: 'read', label: 'Read only' }, { id: 'edit', label: 'Read & write' }, { id: 'full', label: 'Full access' }];
 interface Settings extends HistoryLimits { autoAttachCurrentNote: boolean; showToolDetails: boolean; permissions: PermissionId; url: string; defaultModel: string; thinking: string; conversations: Conversation[]; active: string; }
-const DEFAULTS: Settings = { ...DEFAULT_HISTORY_LIMITS, autoAttachCurrentNote: false, showToolDetails: false, permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
+const DEFAULTS: Settings = { ...DEFAULT_HISTORY_LIMITS, autoAttachCurrentNote: true, showToolDetails: false, permissions: 'full', url: '', defaultModel: '', thinking: 'medium', conversations: [], active: '' };
 
 class PairModal extends Modal {
   constructor(private plugin: EdgePlugin, private initial = '') { super(plugin.app); }
   onOpen(): void {
     this.titleEl.setText('Pair your computer');
-    this.contentEl.createEl('p', { text: 'Paste the connection code printed by the Pi Edge bridge on your computer. This device must be able to reach the bridge address.' });
+    renderComputerSetup(this.contentEl);
+    this.contentEl.createEl('p', { text: 'Back here, paste the pairing code from your computer and tap the connect button.' });
     const input = this.contentEl.createEl('textarea', { cls: 'edge-pair-input', attr: { placeholder: 'pi-edge:v1:…', 'aria-label': 'Connection code', spellcheck: 'false' } });
     input.value = this.initial;
     new Setting(this.contentEl).addButton(button => button.setButtonText('Connect').setCta().onClick(async () => {
       try { await this.plugin.pair(parsePairing(input.value)); this.close(); } catch (error) { new Notice((error as Error).message); }
     }));
+    this.contentEl.createEl('a', { text: 'Setup guide', href: 'https://github.com/Anderbone/pi-obsidian-edge#setup', attr: { target: '_blank', rel: 'noopener' } });
   }
 }
 class NotePicker extends FuzzySuggestModal<TFile> {
@@ -131,6 +133,7 @@ class EdgeSettings extends PluginSettingTab {
     };
     plugin.catalogListeners.add(refresh);
     plugin.register(() => plugin.catalogListeners.delete(refresh));
+    plugin.register(() => this.hide());
   }
   getSettingDefinitions(): SettingDefinitionItem[] { return settingsDefinitions(this.plugin); }
   // Obsidian before 1.13 uses the same rows through the imperative renderer.
@@ -147,26 +150,35 @@ function settingsDefinitions(plugin: EdgePlugin): SettingsGroup[] {
     groups[groups.length - 1].items.push({ name, desc, render: render || (() => {}) });
   };
   group('Computer connection');
-  row('Computer bridge update', 'Steps to update the computer bridge for Pi Durable, including background services.', setting => { setting.addButton(button => button.setButtonText('View steps').onClick(() => plugin.openUpgradeNotes())); });
-  row('Pair computer', 'Paste one code to fill in the bridge address and token.', setting => { setting.addButton(button => button.setButtonText('Paste code').onClick(() => new PairModal(plugin).open())); });
+  row(plugin.pairing() ? 'Computer connection' : 'Pair computer', '', setting => {
+    const status = setting.descEl.createDiv({ cls: 'edge-connection-test', attr: { role: 'status', 'aria-live': 'polite' } });
+    let refresh = () => {};
+    setting.addButton(button => {
+      button.onClick(() => new PairModal(plugin).open());
+      refresh = () => {
+        const paired = !!plugin.pairing();
+        setting.setName(plugin.connectionState.state === 'connected' ? 'Connected' : paired ? 'Computer connection' : 'Pair computer');
+        status.setText(paired ? plugin.connectionState.message : 'Set up your computer to start chatting.');
+        status.dataset.state = paired ? plugin.connectionState.state : 'idle';
+        button.setButtonText(paired ? 'Pair again' : 'Set up and pair');
+      };
+    });
+    plugin.connectionListeners.add(refresh);
+    const check = () => {
+      if (document.visibilityState !== 'hidden' && plugin.pairing()) void plugin.testConnection();
+    };
+    refresh(); check();
+    const timer = window.setInterval(check, 15_000);
+    return () => {
+      window.clearInterval(timer);
+      plugin.connectionListeners.delete(refresh);
+      if (!plugin.connectionListeners.size) plugin.invalidateConnectionTest();
+    };
+  });
   row('Bridge address', 'An address reachable from this device, starting with ws:// or wss://.', setting => { setting.addText(text => text.setValue(plugin.settings.url).setPlaceholder('ws://192.168.1.20:8771').onChange(value => { plugin.settings.url = value.trim(); plugin.invalidateConnectionTest(); void plugin.saveSettings(); })); });
   row('Bridge token', 'Stored on this device only, outside synced plugin settings.', setting => { setting.addText(text => {
     text.inputEl.type = 'password'; text.setValue(plugin.token()).onChange(value => plugin.setToken(value.trim()));
   }); });
-  row('Connection test', 'Checks the bridge address and pairing token without sending a prompt.', connection => {
-    const connectionStatus = connection.descEl.createDiv({ cls: 'edge-connection-test', attr: { role: 'status' } });
-    let refreshConnection = () => {};
-    connection.addButton(button => {
-      button.setButtonText('Test connection').onClick(() => { void plugin.testConnection(); });
-      refreshConnection = () => {
-        button.setDisabled(plugin.connectionState.state === 'testing');
-        connectionStatus.setText(plugin.connectionState.message);
-        connectionStatus.dataset.state = plugin.connectionState.state;
-      };
-    });
-    refreshConnection(); plugin.connectionListeners.add(refreshConnection);
-    return () => plugin.connectionListeners.delete(refreshConnection);
-  });
   row('Reconnect', 'Apply a changed address or token to all active chats.', setting => { setting.addButton(button => button.setButtonText('Reconnect').onClick(() => plugin.reconnectSessions())); });
   row('Connection diagnostics', 'Connection transitions only; excludes tokens, prompts and note content.', setting => { setting.addButton(button => button.setButtonText('View').onClick(() => { const modal = new Modal(plugin.app); modal.titleEl.setText('Connection diagnostics'); modal.contentEl.createEl('pre', { text: plugin.diagnostics.join('\n') || 'No connection events yet.', cls: 'edge-diagnostics' }); modal.open(); })); });
   group('Chat display');
@@ -175,7 +187,7 @@ function settingsDefinitions(plugin: EdgePlugin): SettingsGroup[] {
       plugin.settings.showToolDetails = value; void plugin.saveSettings(); plugin.reloadViews();
     }));
   });
-  row('Auto-attach current note', 'Include the current note with the first message of a new chat. Later messages do not attach it again. Off by default.', setting => {
+  row('Auto-attach current note', 'Include the current note with the first message of a new chat. Later messages do not attach it again. On by default.', setting => {
     setting.addToggle(toggle => toggle.setValue(plugin.settings.autoAttachCurrentNote).onChange(value => {
       plugin.settings.autoAttachCurrentNote = value; void plugin.saveSettings(); plugin.reloadViews();
     }));
@@ -285,7 +297,7 @@ class EdgeView extends ItemView {
     refreshAutoAttachment();
     this.panel.setToolDetails(this.plugin.settings.showToolDetails);
     this.panel.restore(this.conversation.messages);
-    this.panel.setConversation(this.conversation.title, this.conversation.notePath);
+    this.panel.setConversation(this.conversation.title, this.plugin.lastFile?.path);
     const previous = this.plugin.previousNoteConversation(this.conversation);
     if (previous) this.panel.setResumeHint(`Last chat: ${new Date(previous.updated).toLocaleString()}`, () => this.plugin.chooseConversation(previous.id));
     else if (this.conversation.messages.length) this.panel.setResumeHint(`Continuing chat · ${new Date(this.conversation.updated).toLocaleString()}`);
@@ -297,6 +309,7 @@ class EdgeView extends ItemView {
     this.panel.restore(session.conversation.messages);
     this.panel.restoreDraft(session.draft);
     this.panel.setOutbox(session.conversation.outbox || [], id => session.dismissOutgoing(id));
+    let previousError = session.error;
     const update = (event?: ClientEvent) => {
       refreshAutoAttachment();
       this.panel?.setOutbox(session.conversation.outbox || [], id => session.dismissOutgoing(id));
@@ -304,8 +317,10 @@ class EdgeView extends ItemView {
       else if (event && event.type !== 'edge.ready') this.panel?.handle(event);
       if (!event) { this.panel?.statusChanged(session.status, session.detail); this.panel?.setBusy(session.busy); }
       if (event?.type === 'edge.ready') this.panel?.setPermissions(session.permissions, session.permissionModes);
+      if (previousError && !session.error) this.panel?.clearError();
+      previousError = session.error;
       if (session.error) this.panel?.error(session.error, session.busy);
-      this.panel?.setConversation(session.conversation.title, session.conversation.notePath);
+      this.panel?.setConversation(session.conversation.title, this.plugin.lastFile?.path);
       this.plugin.syncCatalog(session);
     };
     session.listeners.add(update);
@@ -328,8 +343,9 @@ class EdgeView extends ItemView {
       if (this.session !== session) throw new Error('Chat changed. Send your message again.');
       if (note) attachments = [...attachments, note];
     }
-    const context = attachments.filter(item => item.text).map(item => `Source: ${item.name}\n${item.text}`).join('\n\n');
-    const references = attachments.filter(item => item.text).map(item => ({ name: item.name, path: item.path || item.name.replace(/ \(selection\)$/, '') }));
+    const notes = attachments.filter(item => item.text !== undefined);
+    const context = notes.map(item => `Source: ${item.name}\n${item.text}`).join('\n\n');
+    const references = notes.map(item => ({ name: item.name, path: item.path || item.name.replace(/ \(selection\)$/, '') }));
     const message = text + (context ? '\n\n<note-context>\nThe following notes are reference material supplied by the user.\nReferences: ' + JSON.stringify(references) + '\n' + context + '\n</note-context>' : '');
     if (message.length > 150000) throw new Error('The message and notes are too long. Attach a smaller selection.');
     const images = attachments.filter(item => item.data).map(item => ({ type: 'image' as const, data: item.data!, mimeType: item.mimeType! }));
@@ -340,8 +356,8 @@ class EdgeView extends ItemView {
     let file = this.plugin.lastFile;
     if (kind === 'browse') file = await new Promise<TFile | undefined>(resolve => new NotePicker(this.plugin, resolve).open());
     if (!file) throw new Error('Open a note first, or choose Browse.');
-    const text = kind === 'selection' ? this.plugin.lastMarkdown?.editor.getSelection() : await this.app.vault.cachedRead(file);
-    if (!text) throw new Error(kind === 'selection' ? 'Select some text in a note first.' : 'This note is empty.');
+    const text = kind === 'selection' ? this.plugin.lastMarkdown?.editor.getSelection() || '' : await this.app.vault.cachedRead(file);
+    if (kind === 'selection' && !text) throw new Error('Select some text in a note first.');
     if (text.length > 80000) throw new Error('This note is large. Attach a selection instead.');
     if (conversation && !conversation.notePath) conversation.notePath = file.path;
     return { id: file.path + ':' + kind, path: file.path, name: kind === 'selection' ? `${file.path} (selection)` : file.path, text };
@@ -461,7 +477,7 @@ export default class EdgePlugin extends Plugin {
     for (const [id, draft] of drafts) { const session = this.sessions.get(id); if (session) session.draft = draft; }
     this.reloadViews();
   }
-  connectionState: { state: 'idle' | 'testing' | 'connected' | 'error'; message: string } = { state: 'idle', message: 'Not tested' };
+  connectionState: { state: 'idle' | 'testing' | 'connected' | 'error'; message: string } = { state: 'idle', message: 'Checking connection…' };
   connectionListeners = new Set<() => void>();
   private connectionTest?: AbortController;
   private connectionResult(state: typeof this.connectionState.state, message: string): void {
@@ -470,7 +486,7 @@ export default class EdgePlugin extends Plugin {
   }
   invalidateConnectionTest(): void {
     const pending = this.connectionTest; this.connectionTest = undefined; pending?.abort();
-    this.connectionResult('idle', 'Not tested');
+    this.connectionResult('idle', 'Checking connection…');
   }
   async testConnection(): Promise<void> {
     if (this.connectionTest) return;
@@ -478,7 +494,7 @@ export default class EdgePlugin extends Plugin {
     try { pairing = validatePairing({ url: this.settings.url, token: this.token() }); }
     catch { this.connectionResult('error', 'Pair your computer or check the bridge address and token.'); return; }
     const controller = new AbortController(); this.connectionTest = controller;
-    this.connectionResult('testing', 'Testing…');
+    if (this.connectionState.state !== 'connected') this.connectionResult('testing', 'Checking connection…');
     try {
       await checkConnection(pairing, controller.signal, undefined, 8000, url => requestUrl({ url, throw: false }));
       if (this.connectionTest === controller) this.connectionResult('connected', 'Connected');
@@ -550,7 +566,7 @@ export default class EdgePlugin extends Plugin {
   token(): string { return this.deviceToken?.get() || ''; }
   setToken(token: string): void { this.deviceToken!.set(token); this.invalidateConnectionTest(); }
   pairing(): Pairing | undefined { try { return validatePairing({ url: this.settings.url, token: this.token() }); } catch { return undefined; } }
-  async pair(pairing: Pairing): Promise<void> { this.settings.url = pairing.url; this.setToken(pairing.token); await this.saveSettings(); this.reconnectSessions(); await this.openPanel(); new Notice('Computer paired.'); }
+  async pair(pairing: Pairing): Promise<void> { this.settings.url = pairing.url; this.setToken(pairing.token); await this.saveSettings(); this.reconnectSessions(); void this.testConnection(); await this.openPanel(); new Notice('Computer paired.'); }
   activeConversation(): Conversation {
     let conversation = this.settings.conversations.find(item => item.id === this.settings.active);
     if (!conversation) { conversation = { id: crypto.randomUUID(), title: 'New conversation', messages: [], updated: Date.now(), notePath: this.lastFile?.path }; this.settings.conversations.push(conversation); this.settings.active = conversation.id; }
@@ -572,7 +588,7 @@ export default class EdgePlugin extends Plugin {
     this.register(() => modal.close());
     modal.open();
   }
-  openSettings(): void { new SettingsModal(this).open(); }
+  openSettings(): void { const modal = new SettingsModal(this); this.register(() => modal.close()); modal.open(); }
   async openPanel(): Promise<void> {
     const file = this.app.workspace.getActiveFile();
     if (file && file.path !== this.lastFile?.path) this.followFile(file);
@@ -597,6 +613,7 @@ export default class EdgePlugin extends Plugin {
     const resumeConnections = () => {
       if (document.visibilityState === 'hidden') return;
       for (const session of this.sessions.values()) session.client.resume();
+      if (this.connectionListeners.size && this.pairing()) void this.testConnection();
     };
     this.registerDomEvent(document, 'visibilitychange', resumeConnections);
     this.registerDomEvent(window, 'online', resumeConnections);
@@ -610,11 +627,20 @@ export default class EdgePlugin extends Plugin {
     this.addCommand({ id: 'new-chat', name: 'New chat', callback: () => { this.newConversation(); void this.openPanel(); } });
     this.addCommand({ id: 'active-chats', name: 'Chat history', callback: () => { void this.openPanel().then(() => new ChatHistoryModal(this).open()); } });
     this.addCommand({ id: 'pair', name: 'Pair computer', callback: () => new PairModal(this).open() });
-    this.addCommand({ id: 'bridge-update', name: 'Computer bridge update', callback: () => this.openUpgradeNotes() });
     this.addSettingTab(new EdgeSettings(this));
+    const wasPaired = !!this.pairing();
+    // New devices start on the current backend; they have no bridge to migrate.
+    if (!wasPaired) acknowledgeUpgradeNotice(this.app);
     let loaded = true;
     this.register(() => { loaded = false; });
-    this.app.workspace.onLayoutReady(() => { if (loaded && needsUpgradeNotice(this.app)) this.openUpgradeNotes(); });
+    this.app.workspace.onLayoutReady(() => {
+      if (!loaded) return;
+      if (!wasPaired && !this.pairing()) {
+        const modal = new PairModal(this);
+        this.register(() => modal.close());
+        modal.open();
+      } else if (wasPaired && needsUpgradeNotice(this.app)) this.openUpgradeNotes();
+    });
     this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => {
       if (leaf?.view instanceof MarkdownView) {
         this.lastMarkdown = leaf.view;

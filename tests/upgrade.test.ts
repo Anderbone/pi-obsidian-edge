@@ -13,6 +13,7 @@ class ElementHost {
   createEl(_tag: string, options?: { text?: string }): ElementHost {
     const child = new ElementHost(); child.text = options?.text ?? ''; this.children.push(child); return child;
   }
+  appendText(text: string): void { this.text += text; }
   empty(): void { this.children = []; }
 }
 
@@ -20,6 +21,7 @@ function loadUpgrade() {
   const device = new Map<string, unknown>();
   const buttons = new Map<string, () => void>();
   let closed = false;
+  let copied = '';
   const app = {
     loadLocalStorage: (key: string) => device.get(key),
     saveLocalStorage: (key: string, value: unknown) => device.set(key, value)
@@ -42,9 +44,9 @@ function loadUpgrade() {
   }
   const code = buildSync({ entryPoints: ['src/upgrade.ts'], bundle: true, platform: 'browser', format: 'cjs', external: ['obsidian'], write: false }).outputFiles[0].text;
   const module = { exports: {} };
-  runInNewContext(code, { module, exports: module.exports, require: () => ({ Modal: ModalHost, Setting: SettingHost, Notice: class {} }) });
-  const exports = module.exports as { needsUpgradeNotice: (app: App) => boolean; UpgradeModal: typeof UpgradeModal; BRIDGE_VERSION: string; BRIDGE_COMMAND: string };
-  return { app, device, buttons, exports, closed: () => closed };
+  runInNewContext(code, { navigator: { clipboard: { writeText: async (value: string) => { copied = value; } } }, module, exports: module.exports, require: () => ({ Modal: ModalHost, Setting: SettingHost, Notice: class {} }) });
+  const exports = module.exports as { needsUpgradeNotice: (app: App) => boolean; UpgradeModal: typeof UpgradeModal; BRIDGE_VERSION: string; BRIDGE_COMMAND: string; COMPUTER_AGENT_PROMPT: string };
+  return { copied: () => copied, app, device, buttons, exports, closed: () => closed };
 }
 
 test('upgrade acknowledgement stays on this device and closing alone does not acknowledge it', () => {
@@ -56,7 +58,7 @@ test('upgrade acknowledgement stays on this device and closing alone does not ac
   modal.onClose();
   assert.equal(host.exports.needsUpgradeNotice(host.app), true);
   modal.onOpen();
-  host.buttons.get('I’ve read these steps')!();
+  host.buttons.get('Done')!();
   assert.equal(host.closed(), true);
   assert.equal(host.exports.needsUpgradeNotice(host.app), false);
   const otherDevice = loadUpgrade();
@@ -73,4 +75,14 @@ test('copyable bridge command matches the published plugin version', () => {
   assert.equal(exports.BRIDGE_VERSION, manifest.version);
   assert.ok(exports.BRIDGE_COMMAND.includes(`/bridge-${manifest.version}/pi-edge-bridge.tgz`));
   assert.ok(exports.BRIDGE_COMMAND.endsWith('--cwd "/path/to/your/vault"'));
+});
+
+test('computer setup copies the complete agent handoff without acknowledging the upgrade', async () => {
+  const host = loadUpgrade();
+  new host.exports.UpgradeModal(host.app).onOpen();
+  await host.buttons.get('Copy instructions for agent')!();
+  assert.equal(host.copied(), host.exports.COMPUTER_AGENT_PROMPT);
+  assert.ok(host.copied().includes(host.exports.BRIDGE_COMMAND));
+  assert.equal(host.exports.needsUpgradeNotice(host.app), true);
+  assert.equal(host.closed(), false);
 });

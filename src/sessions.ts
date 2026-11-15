@@ -8,6 +8,7 @@ import type { ChatMessage, ClientEvent, ModelEntry, PermissionId, PermissionMode
 
 export const MAX_ACTIVE_CHATS = 8;
 export const ACTIVE_IDLE_MS = 24 * 60 * 60 * 1000;
+const UNCONFIRMED_REPLY_ERROR = 'The run ended without a confirmed reply. Your outgoing message is retained; check the conversation before retrying.';
 export interface ComposerDraft { text: string; attachments: Attachment[]; skipAutoAttachment?: boolean; }
 interface SessionOptions {
   pairing: Pairing; permissions: PermissionId; model: string; effort: string;
@@ -47,11 +48,16 @@ export class ConversationSession {
   private acceptedRequests(): Set<string> {
     return new Set(this.conversation.outbox!.filter(message => message.delivery === 'accepted' || message.delivery === 'queued').map(message => message.requestId!));
   }
-  private refreshHistory(ids = this.acceptedRequests()): void {
+  // Refreshing the transcript while a prompt is starting is not evidence that
+  // its run has finished. Only completion/idle checks may settle outgoing work.
+  private refreshHistory(ids = new Set<string>()): void {
     const id = this.client.send('get_messages');
     this.historyQueries.set(id, { settled: ids, updates: new Map(), sequence: ++this.historySequence });
     // A broken connection must not retain unbounded snapshots.
     if (this.historyQueries.size > 16) this.historyQueries.delete(this.historyQueries.keys().next().value!);
+  }
+  private clearResolvedReplyError(): void {
+    if (this.error === UNCONFIRMED_REPLY_ERROR && !this.conversation.outbox!.some(message => message.delivery === 'unconfirmed')) this.error = '';
   }
   private reconcileEcho(message: ChatMessage): void {
     if (message.role !== 'user') return;
@@ -122,6 +128,7 @@ export class ConversationSession {
         if (reply.disposition === 'handled') this.conversation.outbox!.splice(this.conversation.outbox!.indexOf(pending), 1);
         else pending.delivery = reply.disposition === 'failed' ? 'failed' : reply.disposition === 'queued' ? 'queued' : 'accepted';
       }
+      this.clearResolvedReplyError();
       if ((reply.disposition === 'started' || reply.disposition === 'queued') && !this.busy) this.refreshHistory();
       if (reply.disposition === 'failed') this.error = reply.error || 'Pi rejected the message.';
       if (reply.disposition === 'failed' || reply.disposition === 'handled') this.client.send('get_state');
@@ -157,11 +164,13 @@ export class ConversationSession {
           const following = incoming.slice(anchor + 1);
           const user = following.findIndex(item => item.role === 'user');
           if ((!message.afterMessageId || anchor >= 0) && user >= 0 && following.slice(user + 1).some(item => item.role === 'assistant' && !item.tool && item.final && item.text)) return false;
+          if (this.busy) return true;
           message.delivery = 'unconfirmed';
-          this.error = 'The run ended without a confirmed reply. Your outgoing message is retained; check the conversation before retrying.';
+          this.error = UNCONFIRMED_REPLY_ERROR;
           return true;
         });
       }
+      this.clearResolvedReplyError();
       event = { ...event, messages: this.conversation.messages };
       changed = true;
     } else if (event.kind === 'session.new') {
@@ -169,7 +178,7 @@ export class ConversationSession {
     } else if (event.kind === 'run.started') {
       this.busy = true; this.error = ''; this.activity = ''; this.reconcilingError = false;
     } else if (event.kind === 'run.finished') {
-      this.busy = false; this.activity = ''; this.refreshHistory(); changed = true;
+      this.busy = false; this.activity = ''; this.refreshHistory(this.acceptedRequests()); changed = true;
     } else if (event.kind === 'state') {
       this.stateKnown = true;
       if (this.busy && !event.busy) this.conversation.lastActivity = Date.now();
@@ -230,6 +239,7 @@ export class ConversationSession {
   }
   dismissOutgoing(id: string): void {
     this.conversation.outbox = this.conversation.outbox!.filter(message => message.id !== id || (message.delivery !== 'failed' && message.delivery !== 'unconfirmed'));
+    this.clearResolvedReplyError();
     this.options.changed(); this.notify();
   }
   canDetach(): boolean {

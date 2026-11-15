@@ -6,3 +6,5 @@ main.js
 *.log
 preview.js
 dist/
+__pycache__/
+*.pyc

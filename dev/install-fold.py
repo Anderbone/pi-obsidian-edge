@@ -5,7 +5,7 @@ import pathlib
 import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DEST = '/storage/emulated/0/Documents/Obsjiyu/Obsjiyu/.obsidian/plugins/pi-edge'
+DEST = '/storage/emulated/0/Documents/Obsidian-syncthing/.obsidian/plugins/pi-edge'
 
 def run(*args):
     return subprocess.check_output(args, text=True).strip()
@@ -29,5 +29,6 @@ for name in ('main.js', 'styles.css', 'manifest.json'):
     expected = hashlib.sha256(source.read_bytes()).hexdigest()
     actual = run(*adb, 'shell', 'sha256sum', DEST + '/' + name).split()[0]
     if actual != expected:
-        raise SystemExit(f'Hash mismatch: {name}')
-print('Installed and verified on Fold. Reload Pi Edge in Obsidian to activate.')
+        raise SystemExit(f'Hash mismatch: {DEST}/{name}')
+print(f'Installed and verified: {DEST}')
+print('Reload Pi Edge in Obsidian to activate. Plugin data and pairing were preserved.')

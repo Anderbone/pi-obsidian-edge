@@ -38,10 +38,14 @@ class SettingHost {
 
 // Load the real plugin against a small Obsidian host, without Electron or Pi.
 const code = buildSync({ entryPoints: ['main.ts'], bundle: true, platform: 'browser', format: 'cjs', external: ['obsidian'], write: false }).outputFiles[0].text;
-async function loadPlugin(modernSettings = true, initial?: { settings: unknown; activeIds: string[]; file?: TFile; files?: TFile[] }) {
+async function loadPlugin(modernSettings = true, initial?: { settings: unknown; activeIds: string[]; file?: TFile; files?: TFile[]; unpaired?: boolean }) {
   let updates = 0;
+  const intervals = new Map<number, { callback: () => void; delay: number }>();
+  let intervalId = 0;
+  const visibility = { visibilityState: 'visible' };
   let layoutReady = () => {};
   let modalOpens = 0;
+  const modalTypes: string[] = [];
   let tab: PluginSettingTab | undefined;
   let saved: unknown;
   const device = new Map<string, unknown>(initial ? [['pi-edge:active-chats', initial.activeIds]] : []);
@@ -58,7 +62,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     send(value: string) { this.sent.push(JSON.parse(value)); }
     close() { this.closes++; this.readyState = 3; this.onclose?.({ code: 1000 }); }
   }
-  const oldDevice = new Map([['pi-edge:Test vault:.obsidian:token', 'existing-pairing-token-for-test']]);
+  const oldDevice = new Map(initial?.unpaired ? [] : [['pi-edge:Test vault:.obsidian:token', 'existing-pairing-token-for-test']]);
   class PluginHost {
     constructor(public app: App, public manifest: PluginManifest) {}
     register(): void {}
@@ -69,7 +73,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     addRibbonIcon(): void {}
     addCommand(): void {}
     addSettingTab(value: PluginSettingTab): void { tab = value; }
-    async loadData(): Promise<unknown> { return initial?.settings ?? { url: 'ws://127.0.0.1:8771' }; }
+    async loadData(): Promise<unknown> { return initial ? initial.settings : { url: 'ws://127.0.0.1:8771' }; }
     async saveData(data: unknown): Promise<void> { saved = structuredClone(data); }
   }
   class SettingTabHost {
@@ -79,12 +83,12 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
   }
   const module: { exports: { default?: unknown } } = { exports: {} };
   runInNewContext(code, {
-    module, exports: module.exports, TextEncoder, URL, crypto: globalThis.crypto, WebSocket: SocketHost, document: { visibilityState: 'visible' },
+    module, exports: module.exports, TextEncoder, URL, crypto: globalThis.crypto, WebSocket: SocketHost, AbortController, document: visibility,
     require: (name: string) => {
       assert.equal(name, 'obsidian');
-      return { Setting: SettingHost, requireApiVersion: () => modernSettings, Plugin: PluginHost, PluginSettingTab: SettingTabHost, ItemView: class {}, Modal: class { open() { modalOpens++; } close() {} }, FuzzySuggestModal: class {}, MarkdownView: MarkdownHost, Notice: class {} };
+      return { Setting: SettingHost, requireApiVersion: () => modernSettings, Plugin: PluginHost, PluginSettingTab: SettingTabHost, ItemView: class {}, Modal: class { open() { modalOpens++; modalTypes.push(this.constructor.name); } close() {} }, FuzzySuggestModal: class {}, MarkdownView: MarkdownHost, Notice: class {} };
     },
-    window: { setInterval: () => 0, clearInterval: () => {}, setTimeout, clearTimeout, localStorage: { getItem: (key: string) => oldDevice.get(key) ?? null, removeItem: (key: string) => oldDevice.delete(key) } }
+    window: { setInterval: (callback: () => void, delay: number) => { intervals.set(++intervalId, { callback, delay }); return intervalId; }, clearInterval: (id: number) => { intervals.delete(id); }, setTimeout, clearTimeout, localStorage: { getItem: (key: string) => oldDevice.get(key) ?? null, removeItem: (key: string) => oldDevice.delete(key) } }
   });
   const Plugin = module.exports.default as typeof EdgePlugin;
   const app = {
@@ -115,7 +119,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     workspaceEvents.get(firstEvent)?.(firstEvent === 'file-open' ? file : leaf);
     workspaceEvents.get(firstEvent === 'file-open' ? 'active-leaf-change' : 'file-open')?.(firstEvent === 'file-open' ? leaf : file);
   };
-  return { layoutReady: () => layoutReady(), modalOpens: () => modalOpens, plugin, tab, device, oldDevice, sockets, emit, openFile, workspaceEvents, saved: () => saved, updates: () => updates };
+  return { intervals, visibility, modalTypes, layoutReady: () => layoutReady(), modalOpens: () => modalOpens, plugin, tab, device, oldDevice, sockets, emit, openFile, workspaceEvents, saved: () => saved, updates: () => updates };
 }
 function rows(tab: PluginSettingTab): SettingDefinition[] {
   return tab.getSettingDefinitions().flatMap(item => 'items' in item ? item.items || [] : []).filter((item): item is SettingDefinition => !('type' in item));
@@ -124,7 +128,7 @@ function rows(tab: PluginSettingTab): SettingDefinition[] {
 test('plugin settings expose searchable connection and history controls while preserving pairing', async () => {
   const { plugin, tab, oldDevice, saved } = await loadPlugin();
   const names = rows(tab).map(row => row.name);
-  for (const name of ['Pair computer', 'Bridge address', 'Bridge token', 'Connection test', 'Default model', 'Permissions', 'Maximum conversations', 'Maximum history size']) assert.ok(names.includes(name), name);
+  for (const name of ['Computer connection', 'Bridge address', 'Bridge token', 'Default model', 'Permissions', 'Maximum conversations', 'Maximum history size']) assert.ok(names.includes(name), name);
   assert.equal(plugin.token(), 'existing-pairing-token-for-test');
   assert.equal(oldDevice.size, 0);
   await plugin.saveSettings();
@@ -134,39 +138,52 @@ test('plugin settings expose searchable connection and history controls while pr
   assert.ok(rows(tab).some(row => row.name === 'Reasoning effort'));
 });
 
-test('declarative connection test updates status and releases its listener when the row closes', async () => {
-  const { plugin, tab } = await loadPlugin();
-  const row = rows(tab).find(row => row.name === 'Connection test');
-  assert.ok(row?.render);
-  const status = { text: '', dataset: { state: '' }, setText(value: string) { this.text = value; } };
-  let click: (() => void) | undefined;
-  let disabled = false;
-  const button = {
-    setButtonText: () => button,
-    onClick: (handler: () => void) => { click = handler; return button; },
-    setDisabled: (value: boolean) => { disabled = value; return button; }
-  };
-  const setting = { descEl: { createDiv: () => status }, addButton: (render: (value: typeof button) => void) => { render(button); } };
-  const dispose = row.render(setting as unknown as Setting, {} as SettingGroup);
-  assert.equal(status.text, 'Not tested');
-  assert.equal(plugin.connectionListeners.size, 1);
+test('connection summary checks automatically, reflects success and failure, and stops polling on close', async () => {
+  const { plugin, tab, intervals, visibility } = await loadPlugin();
   let checks = 0;
   plugin.testConnection = async () => { checks++; };
-  click!();
-  assert.equal(checks, 1);
-  plugin.connectionState = { state: 'testing', message: 'Testing…' };
-  for (const refresh of plugin.connectionListeners) refresh();
-  assert.equal(disabled, true);
+  const row = rows(tab)[0];
+  assert.ok(row?.render);
+  assert.ok(!rows(tab).some(row => row.name === 'Connection test'));
+  const status = { text: '', dataset: { state: '' }, setText(value: string) { this.text = value; } };
+  let name = '';
+  let label = '';
+  const button = {
+    setButtonText: (value: string) => { label = value; return button; },
+    onClick: () => button
+  };
+  const setting = {
+    setName: (value: string) => { name = value; return setting; },
+    descEl: { createDiv: () => status },
+    addButton: (render: (value: typeof button) => void) => { render(button); }
+  };
+  const dispose = row.render(setting as unknown as Setting, {} as SettingGroup);
+  assert.equal(checks, 1, 'opening settings checks the bridge immediately');
+  assert.equal(label, 'Pair again');
+  assert.equal(plugin.connectionListeners.size, 1);
+  const poll = [...intervals.values()].find(timer => timer.delay === 15_000);
+  assert.ok(poll);
+  poll.callback();
+  assert.equal(checks, 2);
+  visibility.visibilityState = 'hidden';
+  poll.callback();
+  assert.equal(checks, 2, 'hidden app does not poll');
+  visibility.visibilityState = 'visible';
   plugin.connectionState = { state: 'connected', message: 'Connected' };
   for (const refresh of plugin.connectionListeners) refresh();
-  assert.equal(disabled, false);
+  assert.equal(name, 'Connected');
   assert.equal(status.dataset.state, 'connected');
   assert.equal(status.text, 'Connected');
+  plugin.connectionState = { state: 'error', message: 'Computer is offline' };
+  for (const refresh of plugin.connectionListeners) refresh();
+  assert.equal(name, 'Computer connection');
+  assert.equal(status.dataset.state, 'error');
+  assert.equal(status.text, 'Computer is offline');
   assert.equal(typeof dispose, 'function');
   if (dispose) dispose();
   assert.equal(plugin.connectionListeners.size, 0);
+  assert.ok(![...intervals.values()].some(timer => timer.delay === 15_000));
 });
-
 
 test('model catalog changes refresh modern settings and leave hidden legacy tabs alone', async t => {
   const modern = await loadPlugin();
@@ -184,10 +201,11 @@ test('model catalog changes refresh modern settings and leave hidden legacy tabs
 
 test('older Obsidian renders the shared settings and cleans up on refresh and close', async t => {
   const { plugin, tab, emit } = await loadPlugin(false);
+  plugin.testConnection = async () => {};
   t.after(() => plugin.onunload());
   tab.display();
   const container = tab.containerEl as unknown as ContainerHost;
-  for (const name of ['Pair computer', 'Connection test', 'Default model', 'Permissions', 'Maximum conversations']) {
+  for (const name of ['Computer connection', 'Default model', 'Permissions', 'Maximum conversations']) {
     assert.ok(container.rows.some(row => row.name === name), name);
   }
   assert.equal(plugin.connectionListeners.size, 1);
@@ -561,9 +579,24 @@ test('computer upgrade notice waits for layout readiness and respects device ack
   assert.equal(host.modalOpens(), 0);
   host.layoutReady();
   assert.equal(host.modalOpens(), 1);
-  host.device.set('pi-edge:upgrade:0.3.5', true);
+  host.device.set('pi-edge:upgrade:0.3.6', true);
   host.layoutReady();
   assert.equal(host.modalOpens(), 1);
   host.plugin.openUpgradeNotes();
   assert.equal(host.modalOpens(), 2, 'acknowledged steps remain manually available');
 });
+
+for (const settings of [null, { url: 'ws://127.0.0.1:8771' }]) {
+  test(`unpaired device opens pairing instead of upgrade steps (${settings ? 'synced settings' : 'fresh install'})`, async t => {
+    const host = await loadPlugin(true, { settings, activeIds: [], unpaired: true });
+    t.after(() => host.plugin.onunload());
+    assert.equal(host.modalOpens(), 0);
+    host.layoutReady();
+    assert.deepEqual(host.modalTypes, ['PairModal']);
+    assert.equal(host.device.get('pi-edge:upgrade:0.3.6'), true, 'new setup must not receive a migration notice after pairing');
+    assert.equal(rows(host.tab)[0].name, 'Pair computer');
+    assert.ok(!rows(host.tab).some(row => /update/i.test(row.name || '')), 'setup settings must not present a separate upgrade entry');
+    host.plugin.openUpgradeNotes();
+    assert.deepEqual(host.modalTypes, ['PairModal', 'UpgradeModal'], 'migration instructions remain manually available');
+  });
+}

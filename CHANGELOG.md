@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.6
+
+- Allow empty notes as manual or automatic attachments, keeping their paths in the context so Pi can fill them in.
+- Show automatically attached notes as filename chips beside other attachments; tap a chip to exclude it from the message.
+- Enable attaching the current note to the first message of a new chat by default; preserve existing saved preferences.
+- Show live connection status at the top of settings, with automatic checks and a green connected indicator. Replace the separate connection-test row with a pairing action in the status row.
+- Open pairing instructions on unpaired devices, instead of an upgrade notice. Simplify setup and upgrade windows to a copyable computer-agent handoff and an Obsidian pairing step, with concise manual instructions in a collapsible section. Keep migration steps available in settings and show automatic upgrade notices only for previously paired devices.
+- Use one pairing entry in connection settings for setup and migration and simplify the README, with the latest Fold screenshot before the title and legacy upgrade steps in a collapsible section.
+- Keep the current note path in the chat header when reopening conversations associated with other notes.
+- Avoid premature unconfirmed-reply errors while work is running and clear resolved warnings when a reply is confirmed.
+- Align compact chat controls and attachment chips on mobile.
+- Existing Pi Durable bridges 0.3.3 and newer remain compatible; no bridge reinstall or pairing reset is required.
+
 ## 0.3.5
 
 - Fix community review failures by removing lint suppression comments and replacing the deprecated text-paste API with standard DOM selection and range operations. Keep pasted text plain and preserve image attachments.
