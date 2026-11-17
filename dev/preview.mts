@@ -8,9 +8,16 @@ window.createEl = (tag, options = {}, callback) => {
   const info = typeof options === 'string' ? { cls: options } : options;
   element.className = Array.isArray(info.cls) ? info.cls.join(' ') : info.cls || '';
   if (info.text !== undefined) element.textContent = String(info.text);
+  for (const [key, value] of Object.entries(info.attr || {})) element.setAttribute(key, String(value));
   callback?.(element);
   return element;
 };
+// Mirror the small subset of Obsidian element helpers used by picker dialogs.
+HTMLElement.prototype.createEl = function(tag, options, callback) {
+  const element = createEl(tag, options, callback); this.append(element); return element;
+};
+HTMLElement.prototype.createDiv = function(options, callback) { return this.createEl('div', options, callback); };
+HTMLElement.prototype.createSpan = function(options, callback) { return this.createEl('span', options, callback); };
 const panel = new ChatPanel(root, {
   send(text, attachments) {
     panel.handle({ kind: 'message', id: String(Date.now()), role: 'user', text, final: true,

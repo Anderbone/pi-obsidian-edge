@@ -9,7 +9,7 @@ import { checkConnection } from './src/connection';
 import { DEFAULT_HISTORY_LIMITS, historyLimits, positiveInteger, pruneHistory, type Conversation, type HistoryLimits } from './src/history';
 import { isPermissionId, isRecord, type ClientEvent, type ModelEntry, type PermissionId, type PermissionMode } from './shared/protocol';
 
-import { UpgradeModal, needsUpgradeNotice, acknowledgeUpgradeNotice, renderComputerSetup } from './src/upgrade';
+import { UpgradeModal, acknowledgeUpgradeNotice, renderComputerSetup } from './src/upgrade';
 
 import { noteCandidates, userMessage } from './src/references';
 
@@ -262,6 +262,14 @@ class EdgeView extends ItemView {
   getDisplayText(): string { return 'Pi Edge'; }
   getIcon(): string { return 'messages-square'; }
   async onOpen(): Promise<void> { this.render(); this.session?.client.resume(); }
+  activate(): void {
+    this.captureDraft();
+    const conversation = this.plugin.activeConversation();
+    // Refresh placeholders and their Continue hint without resetting the reading
+    // position every time an existing transcript receives focus.
+    if (conversation.id !== this.conversation?.id || !conversation.messages.length) this.render();
+    this.session?.client.resume();
+  }
   captureDraft(): void {
     if (this.session && this.panel) this.session.draft = this.panel.getDraft();
   }
@@ -439,6 +447,10 @@ export default class EdgePlugin extends Plugin {
     if (!this.sessions.has(id) && this.pairing() && this.sessions.size >= MAX_ACTIVE_CHATS) {
       new Notice('All 8 chat connections are occupied (running, reconnecting, or retaining unsent messages). Open chat history to check them.'); return;
     }
+    const selected = this.settings.conversations.find(item => item.id === id);
+    if (!selected) return;
+    // Continuing history supersedes a previous explicit request for fresh context.
+    for (const item of this.settings.conversations) if (item.notePath === selected.notePath) item.resumePreferred = false;
     this.settings.active = id; this.reloadViews(); void this.saveSettings();
   }
   newConversation(): void {
@@ -525,7 +537,8 @@ export default class EdgePlugin extends Plugin {
   private followFile(file: TFile): void {
     const previousPath = this.lastFile?.path;
     this.lastFile = file;
-    if (previousPath === file.path) return;
+    const selected = this.settings.conversations.find(item => item.id === this.settings.active);
+    if (previousPath === file.path && selected?.notePath === file.path) return;
     // Merely browsing notes should not fill the active-chat slots with unused
     // connections. Keep any chat that has messages, work, or a composer draft.
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).captureDraft();
@@ -538,24 +551,21 @@ export default class EdgePlugin extends Plugin {
     this.reloadViews(); this.scheduleSave();
   }
   private recentNoteConversation(path: string, now = Date.now()): Conversation | undefined {
-    // Sync can move a note while Obsidian is suspended. Recover its chats only
-    // when the old path is gone and the project contains one unambiguous match.
-    const files = this.app.vault.getMarkdownFiles();
-    for (const item of this.settings.conversations) {
-      if (!item.notePath || item.notePath === path) continue;
-      const matches = noteCandidates(item.notePath, files);
-      if (matches.length === 1 && matches[0].path === path) item.notePath = path;
-    }
+    // Automatic resume requires the exact note path. Only vault rename events
+    // may transfer a conversation to a different path.
     const candidates = this.settings.conversations.filter(item => item.notePath === path)
-      .sort((a, b) => b.updated - a.updated);
+      .sort((a, b) => (b.lastActivity ?? b.updated) - (a.lastActivity ?? a.updated));
     const protectedChat = candidates.find(item => {
       const session = this.sessions.get(item.id);
       return session?.busy || !!session?.draft.text || !!session?.draft.attachments.length || !!item.outbox?.length;
     });
     const recent = (item: Conversation) => now - (item.lastActivity ?? item.updated) < ACTIVE_IDLE_MS;
+    const latestChat = candidates.find(item => recent(item) && item.messages.some(message => message.role === 'user'));
+    const preferred = candidates.find(item => item.resumePreferred && recent(item));
     // Automatically created empty chats must not hide a recent conversation.
-    return candidates.find(item => item.resumePreferred && recent(item)) || protectedChat ||
-      candidates.find(item => recent(item) && item.messages.some(message => message.role === 'user')) || candidates.find(recent);
+    // A new-chat preference applies until another chat has newer real activity.
+    if (preferred && (!latestChat || (preferred.lastActivity ?? preferred.updated) >= (latestChat.lastActivity ?? latestChat.updated))) return preferred;
+    return protectedChat || latestChat || candidates.find(recent);
   }
   previousNoteConversation(current: Conversation): Conversation | undefined {
     if (!current.notePath || current.messages.length || current.outbox?.length) return;
@@ -569,6 +579,17 @@ export default class EdgePlugin extends Plugin {
   async pair(pairing: Pairing): Promise<void> { this.settings.url = pairing.url; this.setToken(pairing.token); await this.saveSettings(); this.reconnectSessions(); void this.testConnection(); await this.openPanel(); new Notice('Computer paired.'); }
   activeConversation(): Conversation {
     let conversation = this.settings.conversations.find(item => item.id === this.settings.active);
+    // A mobile sidebar can be retained without another file-open event. Recheck
+    // automatic blank placeholders on render, preserving explicit fresh chats,
+    // manually selected transcripts, running work and unsent composer drafts.
+    if (conversation && this.lastFile && conversation.notePath === this.lastFile.path && !conversation.resumePreferred &&
+      !conversation.messages.length && !conversation.outbox?.length) {
+      const session = this.sessions.get(conversation.id);
+      if (!session?.busy && !session?.draft.text && !session?.draft.attachments.length) {
+        conversation = this.recentNoteConversation(this.lastFile.path) || conversation;
+        this.settings.active = conversation.id;
+      }
+    }
     if (!conversation) { conversation = { id: crypto.randomUUID(), title: 'New conversation', messages: [], updated: Date.now(), notePath: this.lastFile?.path }; this.settings.conversations.push(conversation); this.settings.active = conversation.id; }
     return conversation;
   }
@@ -639,13 +660,21 @@ export default class EdgePlugin extends Plugin {
         const modal = new PairModal(this);
         this.register(() => modal.close());
         modal.open();
-      } else if (wasPaired && needsUpgradeNotice(this.app)) this.openUpgradeNotes();
+      }
     });
     this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => {
       if (leaf?.view instanceof MarkdownView) {
         this.lastMarkdown = leaf.view;
         if (leaf.view.file) this.followFile(leaf.view.file);
-      }
+      } else if (leaf?.view instanceof EdgeView) leaf.view.activate();
+    }));
+    // Swiping the mobile drawer open can leave the editor as the active leaf.
+    let drawerCollapsed = this.app.workspace.rightSplit?.collapsed;
+    this.registerEvent(this.app.workspace.on('layout-change', () => {
+      const collapsed = this.app.workspace.rightSplit?.collapsed;
+      const opened = drawerCollapsed === true && collapsed === false;
+      drawerCollapsed = collapsed;
+      if (opened) for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as EdgeView).activate();
     }));
     this.registerEvent(this.app.workspace.on('file-open', file => { if (file) this.followFile(file); }));
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {

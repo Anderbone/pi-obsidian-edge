@@ -1,6 +1,6 @@
 import { Modal, Notice, Setting, type App } from 'obsidian';
 
-export const BRIDGE_VERSION = '0.3.6';
+export const BRIDGE_VERSION = '0.3.7';
 export const BRIDGE_COMMAND = `npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-${BRIDGE_VERSION}/pi-edge-bridge.tgz --cwd "/path/to/your/vault"`;
 export const COMPUTER_AGENT_PROMPT = `Set up or update Pi Edge on this computer using Pi Durable.
 Repository and guide: https://github.com/Anderbone/pi-obsidian-edge

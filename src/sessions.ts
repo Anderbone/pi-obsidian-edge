@@ -4,6 +4,7 @@ import type { Attachment } from './panel';
 import type { Conversation } from './history';
 import { completionPrompt, userMessage } from './references';
 import { toolMessage, mergeToolHistory } from './tools';
+import { pickerCatalog } from './model-catalog';
 import type { ChatMessage, ClientEvent, ModelEntry, PermissionId, PermissionMode } from '../shared/protocol';
 
 export const MAX_ACTIVE_CHATS = 8;
@@ -197,7 +198,10 @@ export class ConversationSession {
         }
       }
       this.conversation.model = event.model; this.conversation.effort = event.effort;
-    } else if (event.kind === 'models') this.models = event.models;
+    } else if (event.kind === 'models') {
+      this.models = pickerCatalog(event.models);
+      event = { ...event, models: this.models };
+    }
     else if (event.kind === 'effort.levels') this.effortLevels = event.levels;
     else if (event.kind === 'model') this.model = this.conversation.model = event.model;
     else if (event.kind === 'tool') {

@@ -1,3 +1,4 @@
+import { Picker } from './picker';
 import { toolMessage } from './tools';
 import { panelHeight } from './viewport';
 import { userMessage } from './references';
@@ -34,6 +35,9 @@ export class ChatPanel {
   private status: HTMLElement;
   private model: HTMLSelectElement;
   private effort: HTMLSelectElement;
+  private confirmedEffort?: string;
+  private modelPicker: Picker;
+  private effortPicker: Picker;
   private permissions: HTMLSelectElement;
   private currentPermissions: PermissionId = 'full';
   private typing: HTMLElement;
@@ -66,7 +70,8 @@ export class ChatPanel {
   private state: string = 'disconnected';
   setResumeHint(text: string, resume?: () => void): void {
     this.root.querySelector('.edge-resume-hint')?.remove();
-    const hint = node('div', 'edge-resume-hint', text);
+    const hint = node('div', 'edge-resume-hint');
+    hint.append(node('span', '', text));
     if (resume) hint.append(button('Continue last chat', 'Continue last chat', resume));
     this.transcript.before(hint);
   }
@@ -93,12 +98,14 @@ export class ChatPanel {
     this.status = node('span', 'edge-status', paired ? 'Connecting…' : 'Computer not paired'); this.status.setAttribute('role', 'status');
     this.model = node('select', 'edge-model'); this.model.setAttribute('aria-label', 'Model');
     this.model.append(new Option('Pi · model on computer', ''));
-    this.model.addEventListener('change', () => { this.effort.hidden = true; actions.model(this.model.value); });
+    this.model.addEventListener('change', () => { this.effort.hidden = true; this.effortPicker.sync(); actions.model(this.model.value); });
     this.effort = node('select', 'edge-effort'); this.effort.setAttribute('aria-label', 'Reasoning effort'); this.effort.title = 'Reasoning effort';
     for (const level of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']) this.effort.add(new Option(level.charAt(0).toUpperCase() + level.slice(1), level));
     this.effort.value = 'medium'; this.effort.hidden = true;
     this.effort.addEventListener('change', () => actions.effort(this.effort.value));
     const modelControls = node('div', 'edge-model-controls'); modelControls.append(this.model, this.effort);
+    this.modelPicker = new Picker(this.model, 'Model', 'Choose a model for this conversation.', true);
+    this.effortPicker = new Picker(this.effort, 'Reasoning effort', 'Available levels for the current model. Higher effort can take longer.');
     connection.append(this.status, modelControls);
     header.insertBefore(connection, controls);
     this.transcript = node('div', 'edge-transcript'); this.transcript.setAttribute('role', 'log'); this.transcript.setAttribute('aria-label', 'Conversation');
@@ -288,19 +295,21 @@ export class ChatPanel {
     if (current && !models.some(model => model.id === current)) this.model.prepend(new Option(current, current));
     if (current) this.model.value = current;
     if (!models.length) this.model.add(new Option('No models available', ''));
-    this.model.disabled = !models.length;
+    this.model.disabled = !models.length; this.modelPicker.sync();
   }
   setEffortLevels(levels: string[]): void {
-    const current = this.effort.value; this.effort.replaceChildren();
+    const current = this.confirmedEffort ?? this.effort.value; this.effort.replaceChildren();
     for (const level of levels) this.effort.add(new Option(level.charAt(0).toUpperCase() + level.slice(1), level));
     this.effort.disabled = levels.length <= 1; this.effort.hidden = !levels.some(level => level !== 'off');
     if (levels.includes(current)) this.effort.value = current;
+    this.effortPicker.sync();
   }
-  setEffort(level: string): void { if (level && [...this.effort.options].some(option => option.value === level)) this.effort.value = level; }
+  setEffort(level: string): void { this.confirmedEffort = level; if (level && [...this.effort.options].some(option => option.value === level)) this.effort.value = level; this.effortPicker.sync(); }
   setCurrentModel(model: string): void {
     if (!model) return;
     if (![...this.model.options].some(option => option.value === model)) this.model.add(new Option(model, model));
-    this.model.value = model;
+    if (this.model.value !== model) { this.effort.hidden = true; this.effortPicker.sync(); }
+    this.model.value = model; this.modelPicker.sync();
   }
   handle(event: AgentEvent | ErrorPacket): void {
     if (event.kind === 'message' && (event.role === 'user' || event.role === 'assistant')) {
@@ -473,5 +482,5 @@ export class ChatPanel {
       } catch (error) { this.error((error as Error).message); }
     }
   }
-  dispose(): void { this.disposed = true; this.imageDialog?.close(); this.viewportCleanup?.(); }
+  dispose(): void { this.disposed = true; this.modelPicker.dispose(); this.effortPicker.dispose(); this.imageDialog?.close(); this.viewportCleanup?.(); }
 }

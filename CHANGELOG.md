@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.7
+
+- Replace Android's native model and reasoning-effort selectors with themed, searchable pickers, and limit the phone model list to the current everyday models.
+- Refresh the model catalog when listing models and clamp the reasoning level to what the newly selected model supports.
+- Reopen the right conversation when swiping the mobile drawer open or focusing the chat, without resetting the reading position; automatic resume now requires the exact note path, and choosing a chat from history overrides a pending fresh-chat request.
+- Keep the resume hint and its button aligned on narrow screens.
+- Add a copyable agent setup prompt to the README.
+- The bridge changes are optional model-list improvements; existing Pi Durable bridges 0.3.3 and newer remain compatible, and no pairing reset is required.
+
 ## 0.3.6
 
 - Allow empty notes as manual or automatic attachments, keeping their paths in the context so Pi can fill them in.

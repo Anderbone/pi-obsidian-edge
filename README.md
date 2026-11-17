@@ -15,6 +15,31 @@ Use **Pi Durable from Obsidian** on your phone or desktop. Chat beside your note
 
 ## Setup
 
+### Let your agent set it up
+
+Copy this entire prompt into a coding agent on your computer. It will set up or update the bridge and give you the pairing code to paste into Obsidian:
+
+```text
+Set up or update Pi Edge on this computer using Pi Durable.
+Repository and guide: https://github.com/Anderbone/pi-obsidian-edge
+Check Node.js 22.19+ and configure Pi model credentials; help me sign in if needed.
+Find my existing vault and bridge configuration, or ask which vault to use.
+Use the prebuilt bridge (Durable is bundled; no clone or build needed):
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.7/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+Replace the placeholder with my computer's vault path. Use Tailscale if connected,
+otherwise a trusted private LAN reachable from my Obsidian device.
+For an existing installation, wait for active tasks to finish before restarting.
+Preserve the account, vault path, pairing token, history, network/tool options,
+private state directory and ~/.pi/agent/. Remove --backend cli. Update any existing
+background service; run only one bridge per vault and state directory.
+If Pi Durable bridge 0.3.3+ is already running, verify it rather than reinstalling.
+Verify connectivity and model access. Keep the bridge running. Give me the pairing
+code privately and tell me to paste it into Pi Edge: Pair computer in Obsidian.
+If my existing pairing still works, tell me to open Pi Edge and send a message.
+```
+
+Then install and enable Pi Edge in Obsidian and follow [step 3](#3-pair-obsidian) to pair. To set up the computer yourself, follow steps 1–3 below.
+
 ### 1. Configure Pi on your computer
 
 - Install **[Node.js 22.19+](https://nodejs.org/en/download)**.
@@ -26,7 +51,7 @@ Use **Pi Durable from Obsidian** on your phone or desktop. Chat beside your note
 Run this in your computer’s terminal, replacing the path with your Obsidian vault folder **on the computer**:
 
 ```sh
-npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.6/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
+npx --yes https://github.com/Anderbone/pi-obsidian-edge/releases/download/bridge-0.3.7/pi-edge-bridge.tgz --cwd "/path/to/your/vault"
 ```
 
 The bridge bundles Pi Durable and starts it by default; no separate Durable installation or service is needed. Keep the terminal running and the computer awake. Run the same command to restart it.

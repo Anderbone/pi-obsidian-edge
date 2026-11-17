@@ -8,7 +8,7 @@ import { Harness, createRegistry, defineExtension, defineTool, section, type Con
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
 import { ModelRuntime, SessionManager, loadProjectContextFiles, getAgentDir, createCodingTools, createReadOnlyTools } from '@earendil-works/pi-coding-agent';
-import { getSupportedThinkingLevels } from '@earendil-works/pi-ai/models';
+import { clampThinkingLevel, getSupportedThinkingLevels } from '@earendil-works/pi-ai/models';
 import type { Models, ModelThinkingLevel, UserMessage } from '@earendil-works/pi-ai';
 import type { PiRequest } from '../shared/protocol';
 
@@ -16,6 +16,16 @@ export interface DurableOptions { directory: string; cwd: string; clientId: stri
 const closing = new Map<string, Promise<void>>();
 export async function closeDurableProcesses(): Promise<void> { await Promise.all(closing.values()); }
 let defaultModels: Promise<Models> | undefined;
+const catalogRefreshes = new WeakMap<Models, Promise<unknown>>();
+async function refreshModels(models: Models): Promise<void> {
+  let refresh = catalogRefreshes.get(models);
+  if (!refresh) {
+    refresh = models.refresh({ allowNetwork: process.env.PI_OFFLINE === undefined, signal: AbortSignal.timeout(10_000) });
+    catalogRefreshes.set(models, refresh);
+  }
+  try { await refresh; }
+  finally { if (catalogRefreshes.get(models) === refresh) catalogRefreshes.delete(models); }
+}
 export function durableTools(cwd: string) {
   const tools = [...createCodingTools(cwd), ...createReadOnlyTools(cwd).filter(tool => tool.name !== 'read')];
   return defineExtension({ name: 'edge-coding', sections: [section('role', () => 'You are Pi, a coding assistant. Use the available tools to help the user.'), section('project', () => loadProjectContextFiles({ cwd, agentDir: getAgentDir() }).map(file => `${file.path}\n${file.content}`).join('\n\n'))], tools: tools.map(tool => defineTool({
@@ -129,14 +139,22 @@ export function createDurableProcess(options: DurableOptions): ChildProcessWitho
         if (failure && failure.reason !== 'aborted') emit({ type: 'response', success: false, error: failure.detail || failure.reason });
         return;
       }
-      case 'get_available_models': return response(request, { models: await models.getAvailable() });
+      case 'get_available_models': {
+        // The runtime is shared for the lifetime of the bridge. Reload local
+        // configuration and refresh catalog caches before listing its models.
+        await refreshModels(models);
+        return response(request, { models: await models.getAvailable() });
+      }
       case 'get_available_thinking_levels': {
         const agent = await conversation.agent(context); const model = agent.model && models.getModel(agent.model.provider, agent.model.modelId);
         return response(request, { levels: model ? getSupportedThinkingLevels(model) : ['off'] });
       }
       case 'set_model': {
         if (!request.provider || !request.modelId || !models.getModel(request.provider, request.modelId)) throw new Error('Unknown model');
-        await conversation.configure({ model: { provider: request.provider, modelId: request.modelId } }, context);
+        const agent = await conversation.agent(context);
+        const target = models.getModel(request.provider, request.modelId)!;
+        await conversation.configure({ model: { provider: request.provider, modelId: request.modelId },
+          thinkingLevel: clampThinkingLevel(target, agent.thinkingLevel) }, context);
         return response(request, { model: models.getModel(request.provider, request.modelId) });
       }
       case 'set_thinking_level': {

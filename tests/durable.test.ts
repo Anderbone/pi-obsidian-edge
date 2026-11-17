@@ -37,6 +37,26 @@ async function waitFor(predicate: () => unknown) {
   for (let i = 0; i < 2000; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)); }
   throw new Error('Durable runtime did not reach expected state');
 }
+test('model requests refresh the catalog in an existing durable session', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'edge-model-refresh-'));
+  const fake = fakeModels();
+  const first = fake.models.getModel('openai', 'gpt-6.1-sol')!;
+  const added = { ...first, id: 'newly-configured-model' };
+  let available = [first];
+  let refreshes = 0;
+  Object.assign(fake.models, {
+    getAvailable: async () => available,
+    refresh: async () => { refreshes++; available = [first, added]; return { aborted: false, errors: new Map() }; }
+  });
+  const run = await runtime(directory, fake.models);
+  try {
+    run.send({ type: 'get_available_models', id: 'catalog' });
+    await waitFor(() => run.events.some(event => event.id === 'catalog'));
+    assert.equal(refreshes, 1);
+    const data = run.events.find(event => event.id === 'catalog')!.data as { models: { id: string }[] };
+    assert.deepEqual(data.models.map(model => model.id), [first.id, added.id]);
+  } finally { await run.close(); await rm(directory, { recursive: true, force: true }); }
+});
 test('durable runtime persists history and deduplicates a request across reopen', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'edge-durable-test-'));
   const fake = fakeModels(); let run = await runtime(directory, fake.models);
@@ -217,5 +237,26 @@ test('a failed run remains visible when history is requested again', async () =>
     run.send({ type: 'get_messages', id: 'reopened-history' });
     await waitFor(() => run.events.some(event => event.id === 'reopened-history'));
     assert.ok(run.events.some(event => event.success === false && event.error));
+  } finally { await run.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('switching models clamps effort and rejects unsupported levels', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'edge-effort-switch-'));
+  const fake = fakeModels();
+  const base = fake.models.getModel('openai', 'gpt-6.1-sol')!;
+  const plain = { ...base, id: 'plain', reasoning: false };
+  const original = fake.models.getModel.bind(fake.models);
+  Object.assign(fake.models, { getModel: (provider: string, id: string) => id === 'plain' ? plain : original(provider, id) });
+  const run = await runtime(directory, fake.models);
+  try {
+    run.send({ type: 'set_thinking_level', id: 'high', level: 'high' });
+    run.send({ type: 'set_model', id: 'switch', provider: 'openai', modelId: 'plain' });
+    run.send({ type: 'get_available_thinking_levels', id: 'levels' });
+    run.send({ type: 'get_state', id: 'plain-state' });
+    run.send({ type: 'set_thinking_level', id: 'invalid', level: 'high' });
+    await waitFor(() => run.events.some(event => event.id === 'invalid'));
+    assert.deepEqual((run.events.find(event => event.id === 'levels')!.data as { levels: string[] }).levels, ['off']);
+    assert.equal((run.events.find(event => event.id === 'plain-state')!.data as { thinkingLevel: string }).thinkingLevel, 'off');
+    assert.equal(run.events.find(event => event.id === 'invalid')!.success, false);
   } finally { await run.close(); await rm(directory, { recursive: true, force: true }); }
 });

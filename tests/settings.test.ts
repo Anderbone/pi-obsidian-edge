@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildSync } from 'esbuild';
 import { runInNewContext } from 'node:vm';
-import type { App, PluginManifest, PluginSettingTab, Setting, SettingDefinition, SettingGroup, TFile } from 'obsidian';
+import type { App, PluginManifest, PluginSettingTab, Setting, SettingDefinition, SettingGroup, TFile, WorkspaceLeaf } from 'obsidian';
 import type EdgePlugin from '../main';
 import type { SocketLike } from '../src/client';
 import type { AgentEvent, ClientPacket } from '../shared/protocol';
@@ -47,6 +47,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
   let modalOpens = 0;
   const modalTypes: string[] = [];
   let tab: PluginSettingTab | undefined;
+  let viewFactory: ((leaf: unknown) => { render(): void }) | undefined;
   let saved: unknown;
   const device = new Map<string, unknown>(initial ? [['pi-edge:active-chats', initial.activeIds]] : []);
   const sockets: SocketHost[] = [];
@@ -66,7 +67,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
   class PluginHost {
     constructor(public app: App, public manifest: PluginManifest) {}
     register(): void {}
-    registerView(): void {}
+    registerView(_type: string, factory: typeof viewFactory): void { viewFactory = factory; }
     registerEvent(): void {}
     registerDomEvent(): void {}
     registerObsidianProtocolHandler(): void {}
@@ -97,6 +98,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     loadLocalStorage: (key: string): unknown => device.get(key) ?? null,
     saveLocalStorage: (key: string, value: unknown) => { if (value === null) device.delete(key); else device.set(key, value); },
     workspace: {
+      rightSplit: { collapsed: true },
       onLayoutReady: (callback: () => void) => { layoutReady = callback; },
       getLeavesOfType: () => [], getActiveFile: () => activeFile, getActiveViewOfType: () => null,
       on: (event: string, handler: (...args: unknown[]) => void) => { workspaceEvents.set(event, handler); return {}; }
@@ -119,7 +121,7 @@ async function loadPlugin(modernSettings = true, initial?: { settings: unknown; 
     workspaceEvents.get(firstEvent)?.(firstEvent === 'file-open' ? file : leaf);
     workspaceEvents.get(firstEvent === 'file-open' ? 'active-leaf-change' : 'file-open')?.(firstEvent === 'file-open' ? leaf : file);
   };
-  return { intervals, visibility, modalTypes, layoutReady: () => layoutReady(), modalOpens: () => modalOpens, plugin, tab, device, oldDevice, sockets, emit, openFile, workspaceEvents, saved: () => saved, updates: () => updates };
+  return { intervals, visibility, modalTypes, layoutReady: () => layoutReady(), modalOpens: () => modalOpens, plugin, tab, device, oldDevice, sockets, emit, openFile, workspaceEvents, createView: () => viewFactory!({}), saved: () => saved, updates: () => updates };
 }
 function rows(tab: PluginSettingTab): SettingDefinition[] {
   return tab.getSettingDefinitions().flatMap(item => 'items' in item ? item.items || [] : []).filter((item): item is SettingDefinition => !('type' in item));
@@ -280,7 +282,7 @@ test('opening another note starts independent context while preserving earlier c
   plugin.chooseConversation(a.id);
   assert.equal(plugin.activeConversation().id, a.id);
   openFile({ path: 'projects/B.md' } as TFile);
-  assert.equal(plugin.activeConversation().id, a.id);
+  assert.equal(plugin.activeConversation().id, b.id);
 });
 
 test('browsing notes releases unused connections but keeps drafts and completed history', async t => {
@@ -406,6 +408,10 @@ test('returning to a note resumes recent history without refreshing activity', a
   a.messages.push({ id: 'a', role: 'user', text: 'Hello', final: true });
   const activity = a.lastActivity;
   openFile({ path: 'B.md' } as TFile);
+  const b = plugin.activeConversation();
+  assert.notEqual(b.id, a.id);
+  assert.equal(b.notePath, 'B.md');
+  assert.equal(b.messages.length, 0);
   openFile({ path: 'A.md' } as TFile);
   assert.equal(plugin.activeConversation().id, a.id);
   assert.equal(a.lastActivity, activity);
@@ -511,7 +517,7 @@ test('recent messages win over a newer automatically created empty chat for the 
   assert.equal(plugin.activeConversation().id, recent.id);
 });
 
-test('reload recovers history after a synced move instead of selecting a newer empty chat', async t => {
+test('a different path never inherits recent history from a same-named missing note', async t => {
   const path = 'projects/demo/In-progress/plan/Task.md';
   const old = { id: 'history', title: 'Task', notePath: 'projects/demo/plan/Task.md', updated: Date.now() - 1000,
     messages: [{ id: 'hello', role: 'user', text: 'Continue this task', final: true }] };
@@ -520,11 +526,12 @@ test('reload recovers history after a synced move instead of selecting a newer e
     settings: { conversations: [empty, old], active: empty.id }, activeIds: [], file: { path } as TFile
   });
   t.after(() => plugin.onunload());
-  assert.equal(plugin.activeConversation().id, old.id);
-  assert.equal(plugin.activeConversation().notePath, path);
+  assert.equal(plugin.activeConversation().id, empty.id);
+  assert.equal(plugin.activeConversation().messages.length, 0);
+  assert.equal(old.notePath, 'projects/demo/plan/Task.md');
 });
 
-test('move recovery never merges existing paths, ambiguous matches or other projects', async t => {
+test('automatic resume never merges different note paths', async t => {
   const path = 'projects/demo/In-progress/Task.md';
   for (const paths of [
     [path, 'projects/demo/Task.md'],
@@ -573,17 +580,17 @@ test('moving a folder updates chats bound to its descendant notes', async t => {
   assert.equal(conversation.notePath, 'projects/demo/In-progress/plan/Task.md');
 });
 
-test('computer upgrade notice waits for layout readiness and respects device acknowledgement', async t => {
+test('paired device never opens setup automatically, even without version acknowledgement', async t => {
   const host = await loadPlugin();
   t.after(() => host.plugin.onunload());
   assert.equal(host.modalOpens(), 0);
   host.layoutReady();
-  assert.equal(host.modalOpens(), 1);
-  host.device.set('pi-edge:upgrade:0.3.6', true);
+  assert.equal(host.modalOpens(), 0, 'existing pairing must suppress the setup dialog');
+  host.device.set('pi-edge:upgrade:0.3.7', true);
   host.layoutReady();
-  assert.equal(host.modalOpens(), 1);
+  assert.equal(host.modalOpens(), 0);
   host.plugin.openUpgradeNotes();
-  assert.equal(host.modalOpens(), 2, 'acknowledged steps remain manually available');
+  assert.equal(host.modalOpens(), 1, 'setup steps remain manually available');
 });
 
 for (const settings of [null, { url: 'ws://127.0.0.1:8771' }]) {
@@ -593,10 +600,101 @@ for (const settings of [null, { url: 'ws://127.0.0.1:8771' }]) {
     assert.equal(host.modalOpens(), 0);
     host.layoutReady();
     assert.deepEqual(host.modalTypes, ['PairModal']);
-    assert.equal(host.device.get('pi-edge:upgrade:0.3.6'), true, 'new setup must not receive a migration notice after pairing');
+    assert.equal(host.device.get('pi-edge:upgrade:0.3.7'), true, 'new setup must not receive a migration notice after pairing');
     assert.equal(rows(host.tab)[0].name, 'Pair computer');
     assert.ok(!rows(host.tab).some(row => /update/i.test(row.name || '')), 'setup settings must not present a separate upgrade entry');
     host.plugin.openUpgradeNotes();
     assert.deepEqual(host.modalTypes, ['PairModal', 'UpgradeModal'], 'migration instructions remain manually available');
   });
 }
+
+test('reopening the same note replaces an automatic blank chat with recent history', async t => {
+  const { plugin, openFile, workspaceEvents, createView } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'A.md' } as TFile);
+  const blank = plugin.activeConversation();
+  const recent = { id: 'recovered', title: 'Earlier chat', notePath: 'A.md', updated: Date.now() - 60_000,
+    messages: [{ id: 'question', role: 'user' as const, text: 'Edit this note', final: true }] };
+  plugin.settings.conversations.push(recent);
+  const view = createView();
+  let displayed: string | undefined;
+  view.render = () => { displayed = plugin.activeConversation().id; };
+  workspaceEvents.get('active-leaf-change')?.({ view });
+  assert.equal(displayed, recent.id, 'a retained mobile panel must recheck history even without a file-open event');
+  assert.equal(blank.messages.length, 0);
+});
+
+test('an automatic blank chat with a draft is never replaced when recent history appears', async t => {
+  const { plugin, openFile } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'A.md' } as TFile);
+  const blank = plugin.activeConversation();
+  plugin.sessionFor(blank).draft.text = 'Keep typing';
+  plugin.settings.conversations.push({ id: 'recovered', title: 'Earlier chat', notePath: 'A.md', updated: Date.now(),
+    messages: [{ id: 'question', role: 'user', text: 'Edit this note', final: true }] });
+  assert.equal(plugin.activeConversation().id, blank.id);
+});
+
+test('swiping open the right drawer restores history without changing the active leaf', async t => {
+  const { plugin, openFile, workspaceEvents, createView } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'A.md' } as TFile);
+  plugin.activeConversation();
+  plugin.settings.conversations.push({ id: 'drawer-history', title: 'Earlier work', notePath: 'A.md', updated: Date.now() - 60_000,
+    messages: [{ id: 'question', role: 'user', text: 'Edit this note', final: true }] });
+  const view = createView();
+  let displayed: string | undefined;
+  let renders = 0;
+  view.render = () => { displayed = plugin.activeConversation().id; renders++; };
+  plugin.app.workspace.getLeavesOfType = () => [{ view } as unknown as WorkspaceLeaf];
+  plugin.app.workspace.rightSplit.collapsed = false;
+  workspaceEvents.get('layout-change')?.();
+  assert.equal(displayed, 'drawer-history');
+  workspaceEvents.get('layout-change')?.();
+  assert.equal(renders, 1, 'ordinary layout changes must not rebuild the chat');
+});
+
+test('a stale explicit new-chat preference cannot hide more recent conversation activity', async t => {
+  const now = Date.now();
+  const blank = { id: 'blank', title: 'New conversation', notePath: 'A.md', updated: now - 120_000, resumePreferred: true, messages: [] };
+  const recent = { id: 'recent', title: 'Latest work', notePath: 'A.md', updated: now - 60_000,
+    messages: [{ id: 'question', role: 'user', text: 'Latest edit', final: true }] };
+  const { plugin } = await loadPlugin(true, { settings: { conversations: [blank, recent] }, activeIds: [], file: { path: 'A.md' } as TFile });
+  t.after(() => plugin.onunload());
+  assert.equal(plugin.activeConversation().id, recent.id);
+});
+
+test('continuing an older chat takes priority over a previous explicit blank chat on return', async t => {
+  const { plugin, openFile } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'A.md' } as TFile);
+  const old = plugin.activeConversation();
+  old.messages.push({ id: 'question', role: 'user', text: 'Earlier work', final: true });
+  old.updated = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  plugin.newConversation();
+  const fresh = plugin.activeConversation();
+  assert.equal(plugin.previousNoteConversation(fresh)?.id, old.id, 'continue has no arbitrary age cutoff');
+  plugin.chooseConversation(old.id);
+  assert.equal(old.updated < Date.now() - 29 * 24 * 60 * 60 * 1000, true, 'selection must not count as conversation activity');
+  openFile({ path: 'B.md' } as TFile);
+  openFile({ path: 'A.md' } as TFile);
+  assert.equal(fresh.resumePreferred, false, 'a superseded new-chat preference must be cleared');
+  assert.notEqual(plugin.activeConversation().id, old.id, 'older history still requires an explicit continue');
+  assert.equal(plugin.previousNoteConversation(plugin.activeConversation())?.id, old.id);
+});
+
+test('reopening the current file rejects a stale selection belonging to another file', async t => {
+  const { plugin, openFile } = await loadPlugin();
+  t.after(() => plugin.onunload());
+  openFile({ path: 'Test.md' } as TFile);
+  const old = plugin.activeConversation();
+  old.messages.push({ id: 'old', role: 'user', text: 'Old chat', final: true });
+  const file = { path: 'inbox/night feeding/2026-11-15.md' } as TFile;
+  openFile(file);
+  plugin.settings.active = old.id;
+  openFile(file);
+  const current = plugin.activeConversation();
+  assert.notEqual(current.id, old.id);
+  assert.equal(current.notePath, file.path);
+  assert.equal(current.messages.length, 0);
+});

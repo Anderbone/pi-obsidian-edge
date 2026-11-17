@@ -153,8 +153,9 @@
 .edge-outbox-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .edge-outbox-item button { margin-right: 8px; }
 
-.edge-resume-hint { padding: 4px 12px; color: var(--text-muted); font-size: var(--font-smallest); flex-shrink: 0; }
-.edge-resume-hint button { margin-left: 8px; }
+.edge-resume-hint { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 12px; color:var(--text-muted); font-size:var(--font-smallest); flex-shrink:0; }
+.edge-resume-hint span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.edge-resume-hint button { flex-shrink:0; margin-left:auto; }
 
 /* Compact history: time stays beside the title; each note has one link. */
 .edge-active-chat-row { padding-block: 12px; gap: 8px; }
@@ -280,3 +281,28 @@
 @media (prefers-reduced-motion:reduce) {
   .edge-panel select { transition:none; }
 }
+
+/* Use themed selectors rather than Android's native radio dialog. */
+.edge-panel select.edge-picker-source { display:none; }
+.edge-panel .edge-picker-trigger { box-sizing:border-box; height:var(--edge-control-size,28px); min-height:var(--edge-control-size,28px); max-height:var(--edge-control-size,28px); margin:0; line-height:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; border:1px solid var(--background-modifier-border); border-radius:var(--edge-control-radius,7px); background:var(--edge-control); font-size:11px; padding:0 7px; box-shadow:none; }
+.edge-panel .edge-picker-trigger.edge-model { flex:0 1 140px; min-width:0; }
+.edge-panel .edge-picker-trigger.edge-effort { flex:0 0 auto; width:auto; max-width:76px; color:var(--text-muted); }
+.edge-picker-trigger::after { content:'⌄'; margin-left:7px; color:var(--text-faint); }
+.edge-picker-trigger[hidden] { display:none; }
+.edge-picker-dialog { box-sizing:border-box; width:min(420px,calc(100vw - 32px)); max-height: min(640px,80dvh); padding:14px 10px 10px; border:1px solid var(--background-modifier-border); border-radius:20px; background:var(--background-primary); color:var(--text-normal); box-shadow:0 20px 70px #0005; animation:edge-picker-enter 140ms ease-out; }
+.edge-picker-dialog::backdrop { background:#0007; }
+.edge-picker-heading { display:flex; align-items:center; justify-content:space-between; padding:0 8px; }
+.edge-picker-heading h3 { margin:0; font-size:17px; font-weight:600; }
+.edge-picker-heading button { height:28px; min-height:28px; width:28px; padding:0; line-height:1; border:0; background:transparent; box-shadow:none; font-size:24px; color:var(--text-muted); }
+.edge-picker-detail { margin:6px 8px 10px; font-size:12px; line-height:1.5; color:var(--text-muted); }
+.edge-picker-dialog .edge-picker-search { box-sizing:border-box; display:block; width:calc(100% - 16px); margin:0 8px 8px; height:30px; min-height:30px; padding:3px 8px; font-size:13px; }
+.edge-picker-empty { padding:16px 12px; color:var(--text-muted); font-size:14px; }
+.edge-picker-list { display:flex; flex-direction:column; gap:4px; }
+.edge-picker-group { padding:14px 12px 5px; font-size:11px; color:var(--text-muted); font-weight:600; }
+.edge-picker-list .edge-picker-option { display:flex; justify-content:space-between; align-items:center; gap:12px; width:100%; min-height:40px; height:auto; padding:9px 12px; border:0; border-radius:10px; background:transparent; box-shadow:none; text-align:left; white-space:normal; font-size:14px; color:var(--text-normal); transition:background 120ms ease; }
+.edge-picker-list .edge-picker-option[aria-pressed=true] { background:rgba(var(--interactive-accent-rgb),.12); color:var(--text-accent); font-weight:600; }
+.edge-picker-list .edge-picker-option:hover { background:var(--background-modifier-hover); }
+.edge-picker-option:focus-visible { outline:2px solid var(--interactive-accent); outline-offset:-2px; }
+.edge-picker-check { flex:none; width:18px; color:var(--text-accent); }
+@keyframes edge-picker-enter { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@media(prefers-reduced-motion:reduce) { .edge-picker-dialog { animation:none; } .edge-picker-option { transition:none; } }
